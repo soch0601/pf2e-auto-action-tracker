@@ -151,7 +151,7 @@ export class ChatManager {
         // Check if they sustained anything last round
         if (Object.keys(sustainData).length > 0) {
             for (const [itemId, itemName] of Object.entries(sustainData)) {
-                const content = await renderTemplate(`modules/${SCOPE}/templates/sustain-reminder.hbs`, {
+                const content = await renderTemplate(`modules/${SCOPE}/public/templates/sustain-reminder.hbs`, {
                     actorId: actor.id,
                     itemId: itemId,
                     itemName: itemName

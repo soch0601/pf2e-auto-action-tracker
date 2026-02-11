@@ -14,7 +14,7 @@ import { SCOPE } from "./globals";
 Hooks.once("init", () => {
     SettingsManager.registerSettings();
     loadTemplates([
-        `modules/${SCOPE}/templates/sustain-reminder.hbs`
+        `modules/${SCOPE}/public/templates/sustain-reminder.hbs`
     ]);
 });
 
