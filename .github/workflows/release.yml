@@ -1,0 +1,62 @@
+name: Release Creation
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Dependencies
+        run: npm install
+
+      - name: Build Code
+        run: npm run build
+
+      - name: Extract Version
+        id: get_version
+        run: echo "VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+
+      - name: Run Smoke Tests
+        run: npm test
+
+      - name: Update Manifest Version and Links
+        run: |
+          # Get version from package.json
+          VERSION=$(node -p "require('./package.json').version")
+          
+          # Use jq to update version and download URL in module.json
+          # This replaces the hardcoded v0.9.x with the current version
+          jq ".version = \"$VERSION\" | .download = \"https://github.com/soch0601/pf2e-auto-action-tracker/releases/download/v$VERSION/pf2e-auto-action-tracker.zip\"" module.json > temp.json && mv temp.json module.json
+
+      - name: Create ZIP
+        # We replicate your manual zip logic here
+        run: |
+          mkdir pf2e-auto-action-tracker
+          cp -r dist public module.json README.md pf2e-auto-action-tracker/
+          zip -r pf2e-auto-action-tracker.zip pf2e-auto-action-tracker/
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_version.outputs.VERSION }}
+          name: Release v${{ steps.get_version.outputs.VERSION }}
+          files: |
+            module.json
+            pf2e-auto-action-tracker.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,11 +1,12 @@
 {
   "name": "pf2e-auto-action-tracker",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "node scripts/smoke-test.mjs",
     "zip": "powershell -Command \"New-Item -ItemType Directory -Force -Path pf2e-auto-action-tracker; Copy-Item -Path dist, public, module.json, README.md -Destination pf2e-auto-action-tracker -Recurse -Force; Compress-Archive -Path pf2e-auto-action-tracker -DestinationPath pf2e-auto-action-tracker.zip -Force; Remove-Item -Recurse -Force pf2e-auto-action-tracker\""
   },
   "devDependencies": {
