@@ -1,0 +1,46 @@
+{
+    "id": "pf2e-auto-action-tracker",
+    "title": "PF2E Automated Action Tracker",
+    "socket": true,
+    "description": "Automates tracking of the action economy for Pathfinder 2e.",
+    "version": "0.9.0",
+    "authors": [
+        {
+            "name": "Warder",
+            "discord": "warder"
+        }
+    ],
+    "compatibility": {
+        "minimum": "12",
+        "verified": "12",
+        "maximum": "13"
+    },
+    "scripts": [],
+    "esmodules": [
+        "main.js"
+    ],
+    "styles": [
+        "style.css"
+    ],
+    "relationships": {
+        "requires": [
+            {
+                "id": "libWrapper",
+                "reason": "Used for reroll rendering and linking old message id to new message id"
+            },
+            {
+                "id": "socketlib",
+                "reason": "Used for cross-client communication between players and the GM."
+            }
+        ],
+        "systems": [
+            {
+                "id": "pf2e",
+                "manifest": "https://github.com/foundryvtt/pf2e/releases/latest/download/system.json",
+                "compatibility": {
+                    "minimum": "6.0.0"
+                }
+            }
+        ]
+    }
+}

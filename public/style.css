@@ -1,0 +1,185 @@
+/* Container Layout */
+.pf2e-auto-action-tracker-container {
+    display: flex;
+    flex-direction: column;
+    gap: 0px;
+    margin-top: 2px;
+    padding-bottom: 2px;
+    pointer-events: none;
+    width: 100%;
+}
+
+/* Individual Rows */
+.action-line,
+.reaction-line,
+.controls-line {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 2px;
+    height: 20px;
+    font-size: 11px;
+    color: #ceba96;
+    font-family: "Signika", sans-serif;
+    font-weight: bold;
+    line-height: 1.2;
+}
+
+/* Base Icon Styles */
+.action-icon {
+    font-family: "Pathfinder2eActions" !important;
+    font-size: 18px !important;
+    display: inline-block;
+    pointer-events: auto !important;
+    cursor: pointer;
+    user-select: none;
+    flex-shrink: 0;
+    padding: 2px;
+    margin: -2px;
+}
+
+/* Specific Style for the Manual Add Button */
+.action-icon.add-button {
+    font-family: "Font Awesome 6 Free" !important;
+    /* Force Standard Icons */
+    font-weight: 900;
+    font-size: 14px !important;
+    /* Smaller than action pips */
+    margin-left: 8px;
+    /* Breathing room from pips */
+    color: #ceba96;
+    opacity: 0.7;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+}
+
+.action-icon.add-button:hover {
+    opacity: 1;
+    color: #ffffff;
+    transform: scale(1.2);
+}
+
+.action-icon.add-button i {
+    pointer-events: none;
+    /* Fixes the click-target bug */
+}
+
+/* Divider for Quickened */
+.pf2e-auto-action-tracker-container .divider {
+    font-family: "Roboto", sans-serif;
+    font-size: 16px;
+    color: #888;
+    margin: 0 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 4px;
+    font-weight: normal;
+}
+
+.action-icon.quickened.spent {
+    color: #dbb75c !important;
+    filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.5));
+}
+
+.action-icon.quickened.unspent {
+    color: transparent;
+    -webkit-text-stroke: 1.5px #dbb75c !important;
+    filter: drop-shadow(0 0 2px rgba(219, 183, 92, 0.4));
+}
+
+.action-icon.spent {
+    color: #4d5bd8;
+    -webkit-text-stroke: 0;
+}
+
+.action-icon.unspent {
+    color: transparent;
+    -webkit-text-stroke: 1px #ffffff;
+}
+
+.action-icon.reaction.spent {
+    color: #dbb75c;
+    -webkit-text-stroke: 0;
+}
+
+.action-icon.reaction.unspent {
+    color: transparent;
+    -webkit-text-stroke: 1px #dbb75c;
+}
+
+/* Settings Styling */
+div.form-group[data-setting-id^="pf2e-auto-action-tracker.header"] {
+    border-top: 2px solid #7a7971;
+    padding-top: 10px;
+    margin-top: 15px;
+    background: rgba(0, 0, 0, 0.1);
+}
+
+div.form-group[data-setting-id^="pf2e-auto-action-tracker.header"] label {
+    font-weight: bold !important;
+    text-transform: uppercase;
+    font-size: 1.1em;
+    color: #ff6400;
+}
+
+div.form-group[data-setting-id^="pf2e-auto-action-tracker.header"] .form-fields,
+div.form-group[data-setting-id^="pf2e-auto-action-tracker.header"] .notes {
+    display: none !important;
+}
+
+/* Alerts and Overspend */
+.overspend-exclamation {
+    color: #ff0000;
+    font-weight: bold;
+    font-family: "Helvetica", sans-serif;
+    margin-right: 2px;
+    font-size: 1.1em;
+    text-shadow: 1px 1px 1px rgba(0, 0, 0, 0.5);
+}
+
+.action-overflow-dots {
+    color: var(--color-text-dark-secondary);
+    margin-left: 4px;
+    font-weight: bold;
+}
+
+.action-icon.spent.overspend-pip {
+    color: #ff8888;
+}
+
+.action-icon:hover {
+    filter: brightness(1.2);
+    transform: scale(1.1);
+    transition: transform 0.1s ease;
+}
+
+/* Manual Form Dialog Styling */
+.pf2e-action-form .form-group {
+    margin-bottom: 10px;
+}
+
+@keyframes pf2e-action-glow {
+    0% {
+        box-shadow: 0 0 5px #ff6400;
+        border: 1px solid #ff6400;
+    }
+
+    50% {
+        box-shadow: 0 0 20px #ff6400;
+        border: 1px solid #ff6400;
+    }
+
+    100% {
+        box-shadow: 0 0 5px #ff6400;
+        border: 1px solid #ff6400;
+    }
+}
+
+.pf2e-action-highlight {
+    animation: pf2e-action-glow 1s ease-in-out infinite alternate;
+    z-index: 1;
+    /* Ensure it sits above other cards slightly */
+    transition: all 0.5s ease;
+}
