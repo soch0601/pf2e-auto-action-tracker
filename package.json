@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "zip": "powershell -Command \"mkdir pf2e-auto-action-tracker; xcopy /E /I dist pf2e-auto-action-tracker; Compress-Archive -Path pf2e-auto-action-tracker -DestinationPath pf2e-auto-action-tracker.zip -Force; rmdir /S /Q pf2e-auto-action-tracker\""
   },
   "devDependencies": {
     "fvtt-types": "npm:@league-of-foundry-developers/foundry-vtt-types@^12.331.5",
