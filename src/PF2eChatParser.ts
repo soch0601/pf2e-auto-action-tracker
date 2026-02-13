@@ -1,4 +1,5 @@
 import { SCOPE } from "./globals";
+import { logConsole } from "./logger";
 
 export interface ParsedAction {
     slug: string;
@@ -13,6 +14,10 @@ export class PF2eChatParser {
      *  Parse a chat message from the PF2E chat system and return information about it
      */
     static parse(message: any): ParsedAction | null {
+
+        const shouldIgnore = this.shouldIgnore(message);
+        if (shouldIgnore) return null;
+
         const cost = this.getCost(message);
         const isReaction = this.getIsReaction(message);
         const slug = this.getSlug(message);
@@ -82,6 +87,51 @@ export class PF2eChatParser {
         return description.includes("sustain a spell") || description.includes("sustain the spell");
     }
 
+    private static shouldIgnore(message: any): boolean {
+
+        const speaker = message.speaker;
+        const combatant = game.combat?.combatants.get(speaker.token || "")
+            || game.combat?.combatants.find(c => (c as any).actorId === speaker.actor);
+        const isConsumable = message.flags.pf2e?.origin?.type === 'consumable';
+
+        const isExplicitUse = !!message.flags?.[SCOPE]?.isExplicitUse;
+
+        // 1. Consumables & Items
+        if (isConsumable) {
+            if (isExplicitUse) return false;
+            return true;
+        }
+
+        // 2. Persistent damage roll detection
+        if (message.rolls?.some((r: any) => r.constructor.name === "DamageRoll") || message.flags?.pf2e?.damageRoll) {
+            return true;
+        }
+
+        const pf2eContext = message.flags?.pf2e?.context;
+        const type = pf2eContext?.type;
+        const action = pf2eContext?.action
+
+        // 3. Explicitly ignore non-action types
+        const ignoredTypes = [
+            "damage-roll",          // Damage rolls
+            "saving-throw",         // Saving throws
+            "recovery-check",       // death saving throws
+            "flat-check"            // any flat check - persistent damage recovery, hidden miss chance, etc.
+        ];
+
+        if (type && ignoredTypes.includes(type)) return true;
+
+        // 4. Ingored actions - "cast-a-spell" is the attack roll for "spell-cast" type action, do not track this!
+        if (action === "cast-a-spell") return true;
+
+        // 5. If there is no type and it isn't an explicit spellcasting use...
+        if (!isExplicitUse && !type) {
+            return true;
+        }
+
+        return false;
+    }
+
     /**
      * Gets the cost in actions from a message
      */
@@ -89,12 +139,13 @@ export class PF2eChatParser {
         const flags = message.flags?.pf2e || {};
         const flavor = message.flavor || "";
 
-        // 1. Sustain Overrides
+        // 1. Sustain & Explicit Overrides
         if (message.flags?.[SCOPE]?.isSustainAutomation) return 1;
         const originSlug = flags.origin?.slug || "";
         if (originSlug === "sustain" || originSlug === "sustain-a-spell") return 1;
 
-        // 2. System Flags (Context Options)
+        // 2. High-Fidelity System Flags (The "Source of Truth")
+        // If the system explicitly told us how many actions were spent, use that first!
         const variable = (flags.context?.options || []).find((opt: string) =>
             opt.startsWith("num-actions:") || opt.startsWith("item:cast:actions:")
         );
@@ -103,7 +154,12 @@ export class PF2eChatParser {
             return isNaN(cost) ? 0 : cost;
         }
 
-        // 3. Interact/Change Grip (The HTML sniff)
+        // 3. Consumable Fallback (Hardcoded to 1)
+        // We do this after Step 2 just in case a future system update adds explicit costs to items
+        const isConsumable = flags.origin?.type === 'consumable';
+        if (isConsumable) return 1;
+
+        // 4. Interact/Change Grip (The HTML sniff)
         if (flavor.includes('class="action"')) {
             const glyphMatch = flavor.match(/class="action-glyph">([123FR])/);
             if (glyphMatch) {
@@ -112,13 +168,10 @@ export class PF2eChatParser {
                 const cost = parseInt(val);
                 return isNaN(cost) ? 1 : cost;
             }
-
-            // If it has the action class but NO glyph, it's likely a 1-action 
-            // thing that just didn't render the span (like some older system calls)
             return 1;
         }
 
-        // 4. Item Fallbacks
+        // 5. Item Document Data
         const item = message.item;
         if (!item) return null;
 
@@ -127,7 +180,7 @@ export class PF2eChatParser {
             ? item.system.time?.value
             : item.system.actions?.value;
 
-        // Handle string-based costs
+        // Handle string-based costs ("reaction", "free", "1", "2", etc)
         if (typeof rawValue === "string") {
             if (["reaction", "free"].includes(rawValue)) return 0;
             const parsed = parseInt(rawValue);
@@ -136,9 +189,9 @@ export class PF2eChatParser {
 
         if (typeof rawValue === "number") return rawValue;
 
-        // Final generic fallbacks based on type
-        if (item.type === "spell") return 2;
-        if (item.type === "action" || item.type === "feat") return 1;
+        // 6. Generic Type-Based Fallbacks
+        if (item.type === "spell") return 2; // Most common spell cost
+        if (["action", "feat", "weapon"].includes(item.type)) return 1;
 
         return null;
     }
