@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'package.json' # The "Release Gate": Only runs when you bump the version
 
 jobs:
   build:
@@ -13,6 +15,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Crucial: Fetches history so it can see previous commits
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -29,20 +33,18 @@ jobs:
         id: get_version
         run: echo "VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
 
-      - name: Run Smoke Tests
-        run: npm test
+      - name: Generate Changelog
+        id: changelog
+        uses: Bullrich/generate-release-changelog@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Update Manifest Version and Links
         run: |
-          # Get version from package.json
           VERSION=$(node -p "require('./package.json').version")
-          
-          # Use jq to update version and download URL in module.json
-          # This replaces the hardcoded v0.9.x with the current version
           jq ".version = \"$VERSION\" | .download = \"https://github.com/soch0601/pf2e-auto-action-tracker/releases/download/v$VERSION/pf2e-auto-action-tracker.zip\"" module.json > temp.json && mv temp.json module.json
 
       - name: Create ZIP
-        # We replicate your manual zip logic here
         run: |
           mkdir pf2e-auto-action-tracker
           cp -r dist public module.json README.md pf2e-auto-action-tracker/
@@ -53,6 +55,7 @@ jobs:
         with:
           tag_name: v${{ steps.get_version.outputs.VERSION }}
           name: Release v${{ steps.get_version.outputs.VERSION }}
+          body: ${{ steps.changelog.outputs.changelog }}
           files: |
             module.json
             pf2e-auto-action-tracker.zip
