@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'package.json' # Only runs when this file changes (i.e., version bump)
 
 jobs:
   build:
@@ -13,6 +15,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # This ensures all tags and history are fetched so the changelog can compare versions
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -42,11 +46,31 @@ jobs:
           jq ".version = \"$VERSION\" | .download = \"https://github.com/soch0601/pf2e-auto-action-tracker/releases/download/v$VERSION/pf2e-auto-action-tracker.zip\"" module.json > temp.json && mv temp.json module.json
 
       - name: Create ZIP
-        # We replicate your manual zip logic here
         run: |
           mkdir pf2e-auto-action-tracker
           cp -r dist public module.json README.md pf2e-auto-action-tracker/
           zip -r pf2e-auto-action-tracker.zip pf2e-auto-action-tracker/
+
+      - name: Generate Changelog
+        id: changelog
+        uses: Bullrich/generate-release-changelog@master
+        with:
+          # This tells the action to look at all commits since the previous tag
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_version.outputs.VERSION }}
+          name: Release v${{ steps.get_version.outputs.VERSION }}
+          body: ${{ steps.changelog.outputs.changelog }}
+          files: |
+            module.json
+            pf2e-auto-action-tracker.zip
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
