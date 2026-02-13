@@ -1,5 +1,5 @@
 import { SCOPE } from "./globals";
-import { ActorPF2e, ConditionPF2e, CreatureSystemData } from "module-helpers";
+import { ActorPF2e, ConditionPF2e } from "module-helpers";
 
 interface TurnSnapshot {
     isQuickened: boolean;

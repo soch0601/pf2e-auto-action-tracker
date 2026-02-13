@@ -8,13 +8,13 @@ import { WrapperManager } from "./WrapperManager";
 import { SocketsManager } from "./SocketManager";
 import { ChatMessagePF2e, CombatantPF2e, EncounterPF2e } from "module-helpers"
 import { logConsole } from "./logger";
-import { SCOPE } from "./globals";
+import { SCOPE, recentIntent } from "./globals";
 
 // Initialization
 Hooks.once("init", () => {
     SettingsManager.registerSettings();
     loadTemplates([
-        `modules/${SCOPE}/public/templates/sustain-reminder.hbs`
+        `modules/${SCOPE}/templates/sustain-reminder.hbs`
     ]);
 });
 
@@ -69,8 +69,25 @@ Hooks.on("deleteCombat", async (combat: EncounterPF2e) => {
     }
 
     ChatManager.clearRerollQueue();
+    recentIntent.clear();
 
     logConsole("Action Tracker: Cleanup complete for all actors in ended combat.");
+});
+
+// Hook before the message is created -used to store flags for recent intent
+Hooks.on("preCreateChatMessage", (message: any) => {
+    const actorId = message.speaker.actor;
+    const intentItemId = recentIntent.get(actorId);
+    const messageItemId = message.flags?.pf2e?.origin?.uuid?.split('.').pop();
+
+    if (intentItemId && intentItemId === messageItemId) {
+        // Inject the flag BEFORE the message is created
+        // This bypasses the PF2e sanitization because it's part of the initial creation
+        message.updateSource({
+            [`flags.${SCOPE}.isExplicitUse`]: true
+        });
+        recentIntent.delete(actorId);
+    }
 });
 
 // Rendering the chat message
