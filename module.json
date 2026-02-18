@@ -3,10 +3,10 @@
     "title": "PF2E Automated Action Tracker",
     "socket": true,
     "esmodules": [
-        "dist/main.js"
+        "main.js"
     ],
     "styles": [
-        "public/style.css"
+        "style.css"
     ],
     "scripts": [],
     "description": "Automates tracking of the action economy for Pathfinder 2e.",

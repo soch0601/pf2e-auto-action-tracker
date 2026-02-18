@@ -9,13 +9,13 @@ export class SettingsManager {
         settings.register(SCOPE, "headerWhispers", {
             name: "--- WHISPERS ---",
             hint: "Configure automated economy and sustain alerts.",
-            scope: "world",
+            scope: "client"
         });
 
         settings.register(SCOPE, "whisperOverspend", {
             name: "Alert on Over-spending on actions",
             hint: "Whisper player/GM when spent actions exceed available actions.",
-            scope: "world",
+            scope: "client",
             config: true,
             type: Boolean,
             default: true
@@ -24,7 +24,7 @@ export class SettingsManager {
         settings.register(SCOPE, "whisperReactionOverspend", {
             name: "Alert on Over-spending on reactions",
             hint: "Whisper player/GM when spent reactions exceed available reactions.",
-            scope: "world",
+            scope: "client",
             config: true,
             type: Boolean,
             default: true
@@ -33,7 +33,7 @@ export class SettingsManager {
         settings.register(SCOPE, "whisperUnderspend", {
             name: "Alert on Under-spending",
             hint: "Whisper player/GM when ending turn with actions remaining.",
-            scope: "world",
+            scope: "client",
             config: true,
             type: Boolean,
             default: true
@@ -42,11 +42,12 @@ export class SettingsManager {
         settings.register(SCOPE, "whisperSustain", {
             name: "Remind to Sustain",
             hint: "Whisper player at turn-start if they have active effects to Sustain.",
-            scope: "world",
+            scope: "client",
             config: true,
             type: Boolean,
             default: true
         });
+
 
         settings.register(SCOPE, "debugMode", {
             name: "Debug Mode?",
@@ -55,7 +56,7 @@ export class SettingsManager {
             config: true,
             type: Boolean,
             default: false
-        })
+        });
     }
 
     /**

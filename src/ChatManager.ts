@@ -169,17 +169,20 @@ export class ChatManager {
     /**
      * Sends out a whispered alert to the given actor AND GMs...
      */
-    static async whisperAlert(actor: ActorPF2e, header: string, message: string) {
-        const recipients = [...new Set([
-            ...ChatMessage.getWhisperRecipients(actor.name).map((u: any) => u.id),
-            ...(game as any).users.filter((u: any) => u.isGM).map((u: any) => u.id)
-        ])];
+    static async triggerAlert(actor: ActorPF2e, header: string, message: string, settingKey: string) {
+        const playerIds = Object.entries(actor.ownership)
+            .filter(([id, level]) => level === 3 && id !== "default")
+            .map(([id]) => id);
 
-        await ChatMessage.create({
-            content: `<div class="pf2e-auto-action-tracker-alert"><strong>${header}:</strong> ${message}</div>`,
-            whisper: recipients,
-            speaker: { alias: "PF2E Action Tracker" }
-        });
+        const payload = {
+            targetPlayerIds: playerIds,
+            header,
+            message,
+            setting: settingKey
+        };
+
+        // Execute for everyone so each client checks their own local settings
+        SocketsManager.socket.executeForEveryone("ATTEMPT_WHISPER", payload);
     }
 
     /**

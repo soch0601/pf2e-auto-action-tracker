@@ -1,11 +1,11 @@
-import { SCOPE } from "./globals";
+import { SettingsManager } from "./SettingsManager";
 
 /**
  * Helper to determine if debug logging is enabled.
  * Eventually, this can be hooked to a Module Setting.
  */
 const isDebugEnabled = () => {
-    return (game as any).settings.get(SCOPE, "debugMode") ?? false;
+    return SettingsManager.get('debugMode') ?? false;
 };
 
 export function logConsole(...args: any[]) {

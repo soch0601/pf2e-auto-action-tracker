@@ -272,7 +272,6 @@ export class ActionManager {
      */
     private static async checkUnderSpend(combatant: CombatantPF2e, log: readonly ActionLogEntry[]) {
         const c = combatant as any;
-        if (!SettingsManager.get("whisperUnderspend")) return;
         const spent = log.filter(e => e.type === 'action' || e.type === 'system').reduce((acc, e) => acc + e.cost, 0);
         const actor = c.actor as ActorPF2e | undefined;
         if (!actor) return;
@@ -281,7 +280,7 @@ export class ActionManager {
         if (spent < max) {
             const diff = max - spent;
             // No need to cast 'actor' again inside the call, it's already typed now
-            await ChatManager.whisperAlert(actor, "Economy", `**${c.name}** ended turn with **${diff}** actions/bonus actions remaining.`);
+            await ChatManager.triggerAlert(actor, "Economy", `**${c.name}** ended turn with **${diff}** actions/bonus actions remaining.`, 'whisperUnderspend');
         }
     }
 
@@ -318,7 +317,7 @@ export class ActionManager {
         if (reason) {
             const lastAlert = (c.getFlag(SCOPE, "lastOverspendAlert") as number) || 0;
             if (rawTotalSpent > lastAlert) {
-                await ChatManager.whisperAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`);
+                await ChatManager.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperOverspend');
             }
             return { lastOverspendAlert: rawTotalSpent };
         }
@@ -337,7 +336,7 @@ export class ActionManager {
         const maxReactions = (actor.system as any).resources?.reactions?.max || 1;
 
         if (reactionLog.length > maxReactions) {
-            await ChatManager.whisperAlert(actor, "Economy Alert", `**${actor.name}**: Spent ${reactionLog.length} reactions with only ${maxReactions} available.`);
+            await ChatManager.triggerAlert(actor, "Economy Alert", `**${actor.name}**: Spent ${reactionLog.length} reactions with only ${maxReactions} available.`, 'whisperReactionOverspend');
         }
 
         return;

@@ -1,5 +1,4 @@
 import { SCOPE } from "./globals";
-import { logConsole } from "./logger";
 
 export interface ParsedAction {
     slug: string;

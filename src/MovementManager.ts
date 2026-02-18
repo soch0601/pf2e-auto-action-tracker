@@ -106,7 +106,7 @@ export class MovementManager {
                 const action = currentActions.pop();
                 if (!action) break;
                 if (MovementManager.isMoveAction(action.msgId)) foundMove = true;
-                else ChatManager.whisperAlert(actor, 'Undo Correction', `Movement undo detected. To maintain turn integrity, the following action was reverted: ${action.label}`);
+                else ChatManager.triggerAlert(actor, 'Undo Correction', `Movement undo detected. To maintain turn integrity, the following action was reverted: ${action.label}`, '');
                 await ActionManager.removeAction(combatant, action.msgId);
             }
             // Clean up the map for this combatant
@@ -147,7 +147,7 @@ export class MovementManager {
             if (lastAction) {
                 await ActionManager.removeAction(combatant, lastAction.msgId);
                 if (!MovementManager.isMoveAction(lastAction.msgId)) {
-                    ChatManager.whisperAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${lastAction.label}`);
+                    ChatManager.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${lastAction.label}`, '');
                 }
                 // Recurse to see if we need to undo more
                 await MovementManager._processMovement(combatant, tokenDoc, coordList, true);

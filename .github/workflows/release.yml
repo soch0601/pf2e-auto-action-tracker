@@ -29,16 +29,6 @@ jobs:
       - name: Build Code
         run: npm run build
 
-      - name: Extract Version
-        id: get_version
-        run: echo "VERSION=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
-
-      - name: Generate Changelog
-        id: changelog
-        uses: Bullrich/generate-release-changelog@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Update Manifest Version and Links
         run: |
           VERSION=$(node -p "require('./package.json').version")
@@ -46,8 +36,16 @@ jobs:
 
       - name: Create ZIP
         run: |
+          # 1. Create a clean staging directory
           mkdir pf2e-auto-action-tracker
-          cp -r dist public module.json README.md pf2e-auto-action-tracker/
+          
+          # 2. Copy compiled files FROM dist into the staging root
+          cp -r dist/* pf2e-auto-action-tracker/
+          
+          # 3. Copy the updated manifest and README into the staging root
+          cp module.json README.md pf2e-auto-action-tracker/
+          
+          # 4. Zip the staging directory
           zip -r pf2e-auto-action-tracker.zip pf2e-auto-action-tracker/
 
       - name: Create GitHub Release
