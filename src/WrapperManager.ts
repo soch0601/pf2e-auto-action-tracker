@@ -15,22 +15,17 @@ export class WrapperManager {
 
         // Wrap the Check.rerollFromMessage to log the old message ID from a message being rerolled.  Used to track which action to update once the reroll happens
         libWrapper.register("pf2e-auto-action-tracker", "game.pf2e.Check.rerollFromMessage", function (this: any, wrapped: Function, ...args: any[]) {
-            const message = args[0]; // The original ChatMessage being rerolled
-
+            const message = args[0];
             if (message?.id) {
-                // Find the combatant via the speaker info
-                const actorId = message.speaker?.actor;
-                const combatant = game.combat?.combatants.find((c: any) => c.actorId === actorId);
-                const c = combatant as unknown as Combatant
+                const speaker = message.speaker;
+                const combatant: any = game.combat?.combatants.find((c: any) =>
+                    speaker.token ? c.tokenId === speaker.token : c.actorId === speaker.actor
+                );
 
-                if (c?.id) {
-                    ChatManager.addToRerollQueue(c.id, message.id);
-                } else {
-                    // Fallback: if not in combat, maybe just log by actor ID or skip
-                    logConsole("No combatant found for reroll message.");
+                if (combatant?.id) {
+                    ChatManager.addToRerollQueue(combatant.id, message.id);
                 }
             }
-
             return wrapped.apply(this, args);
         }, "WRAPPER");
 
@@ -39,10 +34,14 @@ export class WrapperManager {
             "pf2e-auto-action-tracker",
             "CONFIG.PF2E.Item.documentClasses.spellcastingEntry.prototype.cast",
             async function (this: any, wrapped: Function, spell: any, options: any = {}) {
-                const actorId = this.actor?.id;
-                if (actorId) {
-                    recentIntent.set(actorId, spell.id);
+                const actor = this.actor;
+                const token = actor.token ?? actor.getActiveTokens()[0];
+                const uniqueKey = token?.id ?? actor.id;
+
+                if (uniqueKey && spell) {
+                    recentIntent.set(uniqueKey, spell.id);
                 }
+
                 return wrapped(spell, options);
             },
             "WRAPPER"
@@ -53,10 +52,12 @@ export class WrapperManager {
             "pf2e-auto-action-tracker",
             "CONFIG.PF2E.Item.documentClasses.consumable.prototype.consume",
             async function (this: any, wrapped: Function, ...args: any[]) {
-                const actorId = this.actor?.id;
-                if (actorId) {
-                    // Use the item ID to mark intent 
-                    recentIntent.set(actorId, this.id);
+                const actor = this.actor;
+                const token = actor.token ?? actor.getActiveTokens()[0]; // Grab the specific token if possible
+                const uniqueKey = token?.id ?? actor.id;
+
+                if (uniqueKey) {
+                    recentIntent.set(uniqueKey, this.id);
                 }
                 return wrapped(...args);
             },

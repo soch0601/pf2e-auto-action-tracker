@@ -26,7 +26,7 @@ export class CombatUIManager {
 
         const log = (c.getFlag(SCOPE, "log") as ActionLogEntry[]) || [];
 
-        const isQuickened = ActorHandler.hasQuickenedSnapshot(actor);
+        const isQuickened = ActorHandler.hasQuickenedSnapshot(combatant);
         const maxStandardActions = 3;
         const charMap: Record<string, string> = { "1": "A", "2": "D", "3": "T" };
 
@@ -66,10 +66,20 @@ export class CombatUIManager {
         actionLine.className = "action-line";
         actionLine.textContent = "Actions: ";
 
+        let pipsRendered = 0;
+        let overflowCount = 0;
+        const MAX_PIPS = 6;
+
         /**
          * Helper to render individual pips with correct PF2e Action Symbols
          */
         const renderPip = (entry: ActionLogEntry, idx: number, subIdx: number, isGold: boolean, isOver: boolean) => {
+
+            if (pipsRendered >= MAX_PIPS) {
+                overflowCount++;
+                return;
+            }
+
             const message = game.messages.get(entry.msgId || "");
 
             // 1. Determine Visibility
@@ -128,6 +138,7 @@ export class CombatUIManager {
             span.textContent = iconChar;
 
             actionLine.appendChild(span);
+            pipsRendered++;
 
             if (isOver && subIdx === entry.cost - 1) {
                 const warn = document.createElement("span");
@@ -162,6 +173,9 @@ export class CombatUIManager {
         // Render Standard (Unspent)
         const unspentCount = maxStandardActions - standardSlots.length;
         for (let i = 0; i < unspentCount; i++) {
+            if (pipsRendered >= MAX_PIPS) break; // Don't show unspent pips if we are already full
+            pipsRendered++;
+
             const span = document.createElement("span");
             span.className = "action-icon unspent tracker-tooltip";
             span.dataset.tooltip = "Available Action";
@@ -172,7 +186,19 @@ export class CombatUIManager {
         // Render Overspend
         overspendSlots.forEach(s => renderPip(s.entry, s.index, s.subIndex, false, true));
 
-        // --- 3.5 Manual Override Button ---
+        // Render Overflow Indicator
+        if (overflowCount > 0) {
+            const overflow = document.createElement("span");
+            overflow.className = "action-overflow-count";
+            overflow.style.marginLeft = "4px";
+            overflow.style.fontSize = "0.8em";
+            overflow.style.fontWeight = "bold";
+            overflow.textContent = `+${overflowCount}`;
+            overflow.dataset.tooltip = `${overflowCount} more action(s) used`;
+            actionLine.appendChild(overflow);
+        }
+
+        // Render Manual override button
         if (isGM || isOwner) {
             const addBtn = document.createElement("span");
             // Use 'action-icon' so our global listener catches it, 
@@ -337,7 +363,7 @@ export class CombatUIManager {
       * Checks if the current user has permission to modify this specific combatant's tracker.
       */
     private static _canUserModify(target: HTMLElement): boolean {
-        const combatantId = target.closest('[data-combatant-id]')?.getAttribute('data-combatant-id');
+        const combatantId = (target.closest('.pf2e-auto-action-tracker-container')?.parentElement as HTMLElement)?.closest('[data-combatant-id]')?.getAttribute('data-combatant-id');
         const combatant = (game as any).combat?.combatants.get(combatantId);
 
         if (!combatant) return false;
@@ -370,7 +396,12 @@ export class CombatUIManager {
         const msgId = target.dataset.msgId;
 
         // Unclickable list
-        if (!msgId || msgId === 'System' || MovementManager.isMoveAction(msgId)) return;
+        if (!msgId ||
+            msgId === 'System' ||
+            msgId.startsWith('manual-') ||
+            MovementManager.isMoveAction(msgId)) {
+            return;
+        }
         // --- Permission Check ---
         const message = game.messages.get(msgId);
         let canSeeMessage = true;
@@ -431,7 +462,7 @@ export class CombatUIManager {
     private static async _handleIconContextMenu(target: HTMLElement) {
         const msgId = target.dataset.msgId;
         const index = parseInt(target.dataset.index || "-1");
-        const combatantId = target.closest('.combatant')?.getAttribute('data-combatant-id');
+        const combatantId = (target.closest('.pf2e-auto-action-tracker-container')?.parentElement as HTMLElement)?.closest('[data-combatant-id]')?.getAttribute('data-combatant-id');
         const combatant = (game.combat as any)?.combatants.get(combatantId || "") as any | undefined;
 
         if (!combatant) return;

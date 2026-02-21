@@ -1,10 +1,10 @@
 {
   "name": "pf2e-auto-action-tracker",
-  "version": "0.9.6",
+  "version": "0.9.7",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build && copy module.json dist\\module.json",
+    "build": "vite build",
     "link": "cmd /c \"if exist \"%LOCALAPPDATA%\\FoundryVTT\\Data\\modules\\pf2e-auto-action-tracker\" rmdir \"%LOCALAPPDATA%\\FoundryVTT\\Data\\modules\\pf2e-auto-action-tracker\" && mklink /j \"%LOCALAPPDATA%\\FoundryVTT\\Data\\modules\\pf2e-auto-action-tracker\" \"C:\\Users\\Chris\\proj\\pf2e-auto-action-tracker\\dist\"\"",
     "preview": "vite preview",
     "test": "node scripts/smoke-test.mjs",

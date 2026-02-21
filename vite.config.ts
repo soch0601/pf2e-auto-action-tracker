@@ -1,4 +1,5 @@
 import { defineConfig } from 'vite';
+import { viteStaticCopy } from 'vite-plugin-static-copy';
 import path from 'path';
 
 export default defineConfig({
@@ -17,6 +18,16 @@ export default defineConfig({
             external: [],
         },
     },
+    plugins: [
+        viteStaticCopy({
+            targets: [
+                {
+                    src: 'module.json',
+                    dest: '.'
+                }
+            ]
+        })
+    ],
     resolve: {
         extensions: ['.ts', '.js']
     },

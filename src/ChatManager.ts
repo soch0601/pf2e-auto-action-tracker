@@ -2,10 +2,10 @@ import { ActionManager, ActionLogEntry } from "./ActionManager";
 import { SCOPE } from "./globals";
 import { ActorPF2e, ChatMessagePF2e, CombatantPF2e } from "module-helpers";
 import { SettingsManager } from "./SettingsManager";
-import { PF2eChatParser } from "./PF2eChatParser";
 import { ActorHandler } from "./ActorHandler";
 import { SocketsManager } from "./SocketManager";
 import { logConsole } from "./logger"
+import * as Detectors from "./chatTypeDetectors";
 
 // Use a Template Literal Type for clarity, or just string
 type CombatantId = string;
@@ -21,7 +21,11 @@ export class ChatManager {
     static async handleChatPayload(message: any) {
         const actor = message.actor;
         if (!actor || !(game as any).combat?.active) return;
-        const combatant = (game as any).combat.combatants.find((c: any) => c.actorId === actor.id);
+        const speaker = message.speaker;
+        const combatant = (game as any).combat.combatants.find((c: any) =>
+            speaker.token ? c.tokenId === speaker.token : c.actorId === actor.id
+        );
+
         if (!combatant) return;
         const pf2eFlags = message.flags?.pf2e;
         if (pf2eFlags?.context?.isReroll) {
@@ -44,14 +48,14 @@ export class ChatManager {
         }
 
         // Delegate detection and metadata extraction to Parser
-        if (PF2eChatParser.isSustainMessage(message)) {
-            this.processSustainMessage(message, actor);
+        if (Detectors.SustainDetector.isSustainMessage(message)) {
+            this.processSustainMessage(message, combatant);
         }
 
-        const data = PF2eChatParser.parse(message);
+        const data = this.runMessageDetectors(message);
         if (!data) return;
 
-        const isQuickenedEligible = ActorHandler.isActionQuickenedEligible(actor, data.slug);
+        const isQuickenedEligible = ActorHandler.isActionQuickenedEligible(combatant, data.slug);
 
         // Check if we are updating an existing message or logging a new one
         const log = ActionManager.getActionById(combatant, message.id);
@@ -103,33 +107,34 @@ export class ChatManager {
         sustainButtons.on("click", async (event) => {
             event.preventDefault();
             const button = event.currentTarget;
-            const { action, actorId, itemId, itemName } = button.dataset;
-
-            const card = $(button).closest('.pf2e-auto-action-tracker-sustain-card');
-            card.find('button').prop('disabled', true).css({ 'opacity': '0.5' });
+            // CRITICAL: Get combatantId from the button dataset
+            const { action, actorId, itemId, itemName, combatantId } = button.dataset;
 
             const actor = (game.actors as any).get(actorId ?? "");
             if (!actor || (!actor.isOwner && !game.user.isGM)) return;
+
+            // Resolve the combatant directly by ID (Identity Crisis Solved)
+            const combatant = game.combat?.combatants.get(combatantId || "");
 
             const choice = action === "sustain-yes" ? "yes" : "no";
             const payload = {
                 messageId: message.id,
                 actorId: actor.id,
+                combatantId: combatantId, // Pass this to the socket
                 itemId: itemId || "",
                 itemName: itemName || "",
                 choice: choice
             };
 
             if (game.user.isGM) {
-                // GM just runs it locally
                 if (choice === "yes") {
-                    await this.processSustainYes(actor, itemId || "", itemName || "");
+                    await this.processSustainYes(actor, itemId || "", itemName || "", combatantId);
                 } else {
-                    await this.processSustainNo(actor, itemId || "");
+                    // Pass the specific combatant found via ID
+                    await this.processSustainNo(actor, itemId || "", combatant);
                 }
                 await (message as any).setFlag(SCOPE, "sustainChoice", { choice, itemName });
             } else {
-                // Player hands it to the GM via Socketlib
                 SocketsManager.emitSustainChoice(payload);
             }
         });
@@ -138,29 +143,34 @@ export class ChatManager {
     /**
      * Checks for items that needs to be sustained and sends out messages for them
      */
-    static async checkSustainReminder(actor: ActorPF2e) {
+    static async checkSustainReminder(combatant: CombatantPF2e) {
         if (!SettingsManager.get("whisperSustain")) return;
 
-        // Get the combatant for this actor
-        // Look for the combatant where the actor property matches the actor we have
-        const combatant = game.combat?.combatants.contents.find(c => (c as any).actorId === actor.id);
-        if (!combatant) return;
         const c = combatant as any;
-        const sustainData = (c.getFlag(SCOPE, "sustainData") as unknown as Record<string, string>) || {};
+        const actor = c.actor;
 
-        // Check if they sustained anything last round
+        // Safety check: ensure actor exists and has a name
+        if (!actor?.name) return;
+
+        const sustainData = (c.getFlag(SCOPE, "sustainData") as Record<string, string>) || {};
+
         if (Object.keys(sustainData).length > 0) {
             for (const [itemId, itemName] of Object.entries(sustainData)) {
-                const content = await renderTemplate(`modules/${SCOPE}/public/templates/sustain-reminder.hbs`, {
+                const content = await renderTemplate(`modules/${SCOPE}/templates/sustain-reminder.hbs`, {
+                    combatantId: c.id,
                     actorId: actor.id,
                     itemId: itemId,
                     itemName: itemName
                 });
 
+                const recipients = ChatMessage.getWhisperRecipients(actor.name);
+
                 await ChatMessage.create({
                     content: content,
-                    whisper: ChatMessage.getWhisperRecipients(actor.name).map((u: any) => u.id),
-                    speaker: ChatMessage.getSpeaker({ actor: actor as any })
+                    // Map the user objects to IDs
+                    whisper: recipients.map((u: any) => u.id),
+                    // Pass the actual actor document here
+                    speaker: ChatMessage.getSpeaker({ actor: actor })
                 });
             }
         }
@@ -215,27 +225,35 @@ export class ChatManager {
     }
 
     /**
- * Handles if the sustain yes button was clicked on a message
- */
-    static async processSustainYes(actor: any, itemId: string, itemName: string) {
+      * Handles if the sustain yes button was clicked on a message
+      */
+    static async processSustainYes(actor: any, itemId: string, itemName: string, combatantId?: string) {
         const item = actor.items.get(itemId);
         const displayName = itemName || item?.name || "Action";
+        const combatant = game.combat?.combatants.get(combatantId || "");
+        const token = (combatant as any)?.token;
 
         await ChatMessage.create({
-            speaker: ChatMessage.getSpeaker({ actor }),
+            // Force the speaker to be the proper token, since this is what we process on...
+            speaker: {
+                actor: actor.id,
+                token: token?.id,
+                scene: token?.parent?.id,
+                alias: actor.name
+            },
             flavor: `<h4 class="action"><strong>Sustain</strong> <span class="action-glyph">1</span></h4>`,
             content: `<div class="pf2e">Sustaining <strong>${displayName}</strong></div>`,
             flags: {
                 pf2e: {
                     origin: {
                         uuid: item?.uuid,
-                        name: displayName, // Added this for the tracker
+                        name: displayName,
                         type: item?.type || "item",
                         slug: "sustain-a-spell"
                     },
                     context: {
                         type: "action",
-                        title: `Sustain: ${displayName}`, // The tracker often looks here
+                        title: `Sustain: ${displayName}`,
                         options: ["num-actions:1", "action:sustain-a-spell"]
                     }
                 },
@@ -244,42 +262,38 @@ export class ChatManager {
                     sustainedItemId: itemId,
                     sustainedItemName: displayName
                 }
-            } as any
-        });
+            }
+        } as any);
     }
 
     /**
      * Handles if the systain button no was pressed.  Attempts to do a small amount of cleanup
      */
-    static async processSustainNo(actor: any, itemId: string) {
+    static async processSustainNo(actor: any, itemId: string, combatant?: any) {
+        // 1. Precise Cleanup of flags
+        // If we don't have a combatant passed in, try to find one (fallback)
+        const targetCombatant = combatant || game.combat?.combatants.contents.find(c => (c as any).actorId === actor.id);
 
-        const item = actor.items.get(itemId);
-        // Even if item is null, we proceed to cleanup flags and effects
-
-        const combatant = game.combat?.combatants.contents.find(c => (c as any).actorId === actor.id);
-        if (combatant) {
-            await ActionManager.stopSustaining(combatant as any, itemId);
+        if (targetCombatant) {
+            await ActionManager.stopSustaining(targetCombatant, itemId);
         }
 
-        // If the item is missing (like a Wand spell), we search for effects 
-        // that claim this itemId as their origin.
+        // 2. Effect Cleanup
+        const item = actor.items.get(itemId);
         const relatedEffects = actor.itemTypes.effect.filter((e: any) => {
             const originUuid = e.flags?.pf2e?.origin?.uuid;
-            // Check UUID match OR if the effect was tracked by this specific ID
             return (item && originUuid === item.uuid) || originUuid?.includes(itemId);
         });
 
         for (const effect of relatedEffects) {
             await effect.delete();
-            logConsole('Deleted effect from sustain no: ', effect);
         }
 
+        // 3. Item Cleanup (e.g. temporary spell effects)
         if (item) {
-            // Only delete the item if it's an actual 'effect' type and not protected
             const protectedTypes = ["spell", "weapon", "equipment", "consumable", "backpack", "treasure"];
             if (!protectedTypes.includes(item.type)) {
                 await item.delete();
-                logConsole('Deleted item from sustain no: ', item);
             }
         }
     }
@@ -304,11 +318,43 @@ export class ChatManager {
     /**
      * Moves the sustain-specific flag parsing out of the main loop
      */
-    private static processSustainMessage(message: ChatMessagePF2e, actor: ActorPF2e) {
-        const { itemId, itemName } = PF2eChatParser.getSustainMetadata(message);
+    private static processSustainMessage(message: ChatMessagePF2e, combatant: CombatantPF2e) {
+        const { itemId, itemName } = Detectors.SustainDetector.getSustainMetadata(message);
 
         if (itemId && message.id) {
-            ActionManager.trackSustain(actor, message.id, itemId, itemName);
+            ActionManager.trackSustain(combatant, message.id, itemId, itemName);
         }
+    }
+
+    private static runMessageDetectors(message: any): { cost: number, slug: string, label: string, isReaction: boolean } | undefined {
+        const activeDetectors = [
+            Detectors.HardIgnoreDetector,
+            Detectors.SustainDetector,
+            Detectors.SpellDetector,
+            Detectors.ConsumableDetector,
+            Detectors.AttackDetector,
+            Detectors.SkillDetector,
+            Detectors.GenericActionDetector
+        ];
+
+        for (const Detector of activeDetectors) {
+            // 1. Kill the loop if a detector identifies this as "noise" (e.g. Damage Rolls)
+            if (Detector.shouldBreak(message)) {
+                return undefined;
+            };
+
+            // 2. If this detector recognizes the message, parse it and stop
+            if (Detector.isType(message)) {
+                const details = Detector.getDetails(message);
+
+                // Handle Whisper/Secret logic here globally
+                const isPublic = message.whisper.length === 0 || message.whisper.includes(game.user.id);
+                const finalLabel = isPublic ? details.label : "Secret Action";
+
+                return { cost: details.cost, slug: details.slug, label: finalLabel, isReaction: details.isReaction };
+            }
+        }
+
+        return undefined;
     }
 }

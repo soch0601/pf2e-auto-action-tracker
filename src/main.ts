@@ -36,20 +36,18 @@ Hooks.on("createChatMessage", async (message: ChatMessagePF2e) => {
 
 // Delete Chat hook
 Hooks.on("deleteChatMessage", (message: ChatMessagePF2e) => {
-    // Only care about this if a combat is active
-    if (!(game as any).combat?.active) return;
-    if (!message.id) return;
+    if (!(game as any).combat?.active || !message.id) return;
 
-    const actorId = (message.speaker as any).id || message.token?.actor?.id || message.actor?.id;
-    if (!actorId) return;
+    const speaker = message.speaker;
+    const combatant = game.combat?.combatants.find((c: any) =>
+        speaker.token ? c.tokenId === speaker.token : c.actorId === speaker.actor
+    );
 
-    const combatant = game.combat?.combatants.find((c) => (c as any).actorId === actorId);
     if (!combatant) return;
 
     const context = message.flags?.pf2e;
     if (context && "isReroll" in context && context.isReroll) return;
 
-    // Remove the action from your tracker history
     ChatManager.handleDeletedMessage(combatant, message.id);
 });
 
@@ -76,17 +74,18 @@ Hooks.on("deleteCombat", async (combat: EncounterPF2e) => {
 
 // Hook before the message is created -used to store flags for recent intent
 Hooks.on("preCreateChatMessage", (message: any) => {
-    const actorId = message.speaker.actor;
-    const intentItemId = recentIntent.get(actorId);
+    const speaker = message.speaker;
+    const uniqueKey = speaker.token || speaker.actor;
+    const intentItemId = recentIntent.get(uniqueKey);
+
+    // PF2e uses origin.uuid for item links in chat
     const messageItemId = message.flags?.pf2e?.origin?.uuid?.split('.').pop();
 
     if (intentItemId && intentItemId === messageItemId) {
-        // Inject the flag BEFORE the message is created
-        // This bypasses the PF2e sanitization because it's part of the initial creation
         message.updateSource({
             [`flags.${SCOPE}.isExplicitUse`]: true
         });
-        recentIntent.delete(actorId);
+        recentIntent.delete(uniqueKey);
     }
 });
 
@@ -124,8 +123,10 @@ Hooks.on("updateChatMessage", (message: ChatMessagePF2e, updateData: any) => {
         if (!combat?.active) return;
 
         // Find the combatant associated with this message
-        const actorId = message.actor?.id;
-        const combatant = combat.combatants.find((c: CombatantPF2e) => (c as any).actorId === actorId);
+        const speaker = message.speaker;
+        const combatant = combat.combatants.find((c: any) =>
+            speaker.token ? c.tokenId === speaker.token : c.actorId === speaker.actor
+        );
 
         if (combatant) {
             // Trigger a re-render. 

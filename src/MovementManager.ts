@@ -24,12 +24,11 @@ export class MovementManager {
         const combatant = tokenDoc.combatant;
         if (!combatant) return;
 
-        const combatantId = combatant.id;
-        const existingPromise = MovementManager._processingQueue.get(combatantId) || Promise.resolve();
+        // Use tokenDoc.id as the primary key for physical movement history
+        const tokenId = tokenDoc.id;
+        const existingPromise = MovementManager._processingQueue.get(tokenId) || Promise.resolve();
 
-        // Chain the new movement task onto the existing one
         const newPromise = existingPromise.then(async () => {
-
             const history = tokenDoc._movementHistory || [];
             const coordList = history.map((p: any) => ({ x: p.x, y: p.y, elevation: p.elevation ?? 0 }));
             try {
@@ -39,7 +38,7 @@ export class MovementManager {
             }
         });
 
-        MovementManager._processingQueue.set(combatantId, newPromise);
+        MovementManager._processingQueue.set(tokenId, newPromise);
     }
 
     /**
@@ -94,42 +93,40 @@ export class MovementManager {
         if ((game as any).combat.combatant?.id !== c.id) return;
 
         const currentActions = [...ActionManager.getActions(combatant)];
-        const lastAction = currentActions[currentActions.length - 1];
-
         const actor: ActorPF2e = c.actor;
         if (!actor) return;
 
-        // --- 1. HANDLE COMPLETE CLEAR ---
+        // --- 1. HANDLE COMPLETE CLEAR (Undo to zero) ---
         if (coordList.length === 0) {
             let foundMove = false;
             while (currentActions.length > 0 && !foundMove) {
                 const action = currentActions.pop();
                 if (!action) break;
-                if (MovementManager.isMoveAction(action.msgId)) foundMove = true;
-                else ChatManager.triggerAlert(actor, 'Undo Correction', `Movement undo detected. To maintain turn integrity, the following action was reverted: ${action.label}`, '');
+                if (MovementManager.isMoveAction(action.msgId)) {
+                    foundMove = true;
+                } else {
+                    ChatManager.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${action.label}`, '');
+                }
                 await ActionManager.removeAction(combatant, action.msgId);
             }
-            // Clean up the map for this combatant
-            const cId = (combatant as any).id;
-            if (cId) MovementManager._historyLengths.delete(cId);
+            MovementManager._historyLengths.delete(tokenDoc.id);
             return;
         }
 
         const path = coordList.map(p => ({ x: p.x, y: p.y }));
         // This takes into account rough terrain and adds appropriate distance as needed
         const { distance } = (canvas.grid as any).measurePath(path);
-        if (distance === 0) return;
-        // If over 200 feet, likely a GM drag and drop, do not log it.
-        if (distance > 200) return;
+
+        // Jitter/GM Drag Checks
+        if (distance === 0 || distance > 200) return;
 
         const activeSpeed = ActorHandler.getActiveSpeed(actor, (tokenDoc.elevation || 0) > 0);
         const isDifficult = MovementManager.checkDifficultTerrain(tokenDoc.object, coordList);
 
-        // Helper to get distance from an action
         const getDist = (act: any) => {
-            if (!act || !act.label) return 0;
+            if (!act?.label) return 0;
             if (act.label === 'Step') return 5;
-            const match = act.label.match(/\d+/); // Finds the number in "Stride: 10ft"
+            const match = act.label.match(/\d+/);
             return match ? parseInt(match[0]) : 0;
         };
 
@@ -139,43 +136,48 @@ export class MovementManager {
 
         // --- 2. EVALUATE CHANGES ---
 
-        // A. NO CHANGE (Jitter)
+        // A. NO CHANGE
         if (distance === totalRecorded) return;
 
+        const lastAction = currentActions[currentActions.length - 1];
         // B. UNDO (Ruler is shorter than Log)
-        if (distance < totalRecorded) {
+        // B. ACTUAL UNDO (Ctrl+Z detected via history length)
+        if (MovementManager.isUndoMovement(tokenDoc, coordList)) {
             if (lastAction) {
                 await ActionManager.removeAction(combatant, lastAction.msgId);
                 if (!MovementManager.isMoveAction(lastAction.msgId)) {
-                    ChatManager.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${lastAction.label}`, '');
+                    ChatManager.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${lastAction.label}`, 'undoAlert');
                 }
+                // Sync the history length after the pop
+                MovementManager.storeMovement(tokenDoc, coordList);
                 // Recurse to see if we need to undo more
                 await MovementManager._processMovement(combatant, tokenDoc, coordList, true);
             }
             return;
         }
 
-        // C. NEW MOVEMENT OR EDIT LAST MOVE
-        if (lastAction && MovementManager.isMoveAction(lastAction.msgId)) {
-            const distBeforeThisMove = totalRecorded - getDist(lastAction);
-            const newDistance = distance - distBeforeThisMove;
-            const newCost = Math.ceil(newDistance / activeSpeed);
-            const label = MovementManager.getMovementLabel(newDistance, newCost, tokenDoc, isDifficult);
+        // C. MOUSE MOVEMENT (Adjusting the current ruler)
+        if (distance !== totalRecorded) {
+            if (lastAction && MovementManager.isMoveAction(lastAction.msgId)) {
+                // Just edit the existing move label/cost, don't delete anything!
+                const distBeforeThisMove = totalRecorded - getDist(lastAction);
+                const newDistance = distance - distBeforeThisMove;
 
-            await ActionManager.editAction(combatant, lastAction.msgId, { label, cost: newCost });
-        } else {
-            // New movement segment
-            const newDistance = distance - totalRecorded;
-            if (newDistance > 0) {
-                const moveMsgId = `move-${c.id}-${Date.now()}`;
-                const cost = Math.ceil(newDistance / activeSpeed);
-                const label = MovementManager.getMovementLabel(newDistance, cost, tokenDoc, isDifficult);
-                await ActionManager.addAction(combatant, { cost, msgId: moveMsgId, label, type: 'action', isQuickenedEligible: true });
+                const newCost = Math.ceil(newDistance / activeSpeed);
+                const label = MovementManager.getMovementLabel(newDistance, newCost, tokenDoc, isDifficult);
+                await ActionManager.editAction(combatant, lastAction.msgId, { label, cost: newCost });
+            } else {
+                // New movement segment
+                const newDistance = distance - totalRecorded;
+                if (newDistance > 0) {
+                    const moveMsgId = `move-${tokenDoc.id}-${Date.now()}`;
+                    const cost = Math.ceil(newDistance / activeSpeed);
+                    const label = MovementManager.getMovementLabel(newDistance, cost, tokenDoc, isDifficult);
+                    await ActionManager.addAction(combatant, { cost, msgId: moveMsgId, label, type: 'action', isQuickenedEligible: true });
+                }
             }
         }
-
-        // At the very end of the function:
-        if (!recursiveCall) MovementManager.storeMovement(combatant, coordList);
+        if (!recursiveCall) MovementManager.storeMovement(tokenDoc, coordList);
     }
 
     /**
@@ -196,18 +198,15 @@ export class MovementManager {
     /**
       * Stores the current coordList length into local memory.
       */
-    private static storeMovement(combatant: CombatantPF2e, coordList: any[]) {
-        const cId = (combatant as any).id;
-        if (cId) MovementManager._historyLengths.set(cId, coordList.length);
+    private static storeMovement(tokenDoc: any, coordList: any[]) {
+        MovementManager._historyLengths.set(tokenDoc.id, coordList.length);
     }
 
     /**
      * Compares the current coordList length against local memory.
      */
-    private static isUndoMovement(combatant: CombatantPF2e, coordList: any[]): boolean {
-        const cId = (combatant as any).id;
-        const lastHistoryLength = cId ? (MovementManager._historyLengths.get(cId) || 0) : 0;
-
+    private static isUndoMovement(tokenDoc: any, coordList: any[]): boolean {
+        const lastHistoryLength = MovementManager._historyLengths.get(tokenDoc.id) || 0;
         return coordList.length < lastHistoryLength;
     }
 }

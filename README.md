@@ -18,7 +18,7 @@ This module eliminates the "How many actions do I have left?" question by automa
 
 ## 🛠️ Installation
 Requires the following modules:
-* [libWrapper](https://foundryvtt.com/packages/libWrapper)
+* [lib-wrapper](https://foundryvtt.com/packages/libWrapper)
 * [socketlib](https://foundryvtt.com/packages/socketlib)
 
 ## ⚙️ Settings

@@ -24,16 +24,18 @@ export class SocketsManager {
         if (msg) {
             await (msg as any).setFlag(SCOPE, "sustainChoice", {
                 choice: data.choice,
-                itemName: data.itemName
+                itemName: data.itemName,
+                combatantId: data.combatantId
             });
         }
 
         const actor = (game.actors as any).get(data.actorId);
         if (actor) {
             if (data.choice === "yes") {
-                await ChatManager.processSustainYes(actor, data.itemId, data.itemName);
+                await ChatManager.processSustainYes(actor, data.itemId, data.itemName, data.combatantId);
             } else {
-                await ChatManager.processSustainNo(actor, data.itemId);
+                const combatant = game.combat?.combatants.get(data.combatantId);
+                await ChatManager.processSustainNo(actor, data.itemId, combatant);
             }
         }
     }

@@ -17,7 +17,7 @@ export interface ActionLogEntry {
 
 export class ActionManager {
 
-    // Buffer: key is `${actorId}-${msgId}`
+    // Buffer: key is `${combatantId}-${msgId}`
     private static _sustainBuffer = new Map<string, { id: string, name: string }>();
 
     /**
@@ -40,8 +40,8 @@ export class ActionManager {
     /**
      * It was determined there is something to sustain - track it for later filing on the next action
      */
-    static trackSustain(actor: ActorPF2e, msgId: string, itemId: string, itemName: string) {
-        const key = `${actor.id}-${msgId}`;
+    static trackSustain(combatant: CombatantPF2e, msgId: string, itemId: string, itemName: string) {
+        const key = `${(combatant as any).id}-${msgId}`;
         this._sustainBuffer.set(key, { id: itemId, name: itemName });
     }
 
@@ -54,11 +54,11 @@ export class ActionManager {
         const actor: ActorPF2e = c.actor;
         if (!actor) return;
 
-        // 1. Snapshot conditions
-        ActorHandler.handleStartOfTurn(actor);
+        // 1. Logic call to ActorHandler, but the ActionManager does the filing
+        const isQuickened = ActorHandler.getQuickenedState(combatant);
 
-        // 2. Get Cleaned Condition Data - Important to do before decrementing stunned so we know value of stunned...
-        const { logEntries, actionsSpent, reactionsSpent } = this.calculateStartOfTurnDrains(actor);
+        // 2. Calculate drains using the combatant (which hasn't updated its flag yet, so we pass state)
+        const { logEntries, actionsSpent, reactionsSpent } = this.calculateStartOfTurnDrains(combatant);
 
         // 3. RAW Stunned Logic: Decrement before calculating turn resources
         const stunnedCondition = actor.itemTypes.condition.find(c => c.slug === "stunned");
@@ -66,7 +66,7 @@ export class ActionManager {
 
         if (stunnedCondition) {
             const currentVal = (stunnedCondition.value ?? 0);
-            const maxActions = ActorHandler.getMaxActions(actor);
+            const maxActions = ActorHandler.getMaxActions(c);
             stunnedCost = Math.min(currentVal, maxActions);
 
             // Update the actual condition on the actor
@@ -79,15 +79,16 @@ export class ActionManager {
             logConsole(`RAW: Decremented Stunned on ${actor.name} by ${stunnedCost}.`);
         }
 
+        // 4. ATOMIC UPDATE: File everything to the combatant at once [cite: 5, 10, 11]
         await c.update({
+            [`flags.${SCOPE}.isQuickenedSnapshot`]: isQuickened,
             [`flags.${SCOPE}.log`]: logEntries,
             [`flags.${SCOPE}.actionsSpent`]: actionsSpent,
             [`flags.${SCOPE}.reactionsSpent`]: reactionsSpent,
             [`flags.${SCOPE}.lastOverspendAlert`]: 0
         });
 
-        // Now checkSustainReminder will find the data preserved in the registry!
-        await ChatManager.checkSustainReminder(actor);
+        await ChatManager.checkSustainReminder(c);
     }
 
     /**
@@ -111,8 +112,8 @@ export class ActionManager {
     static async addAction(combatant: CombatantPF2e, action: ActionLogEntry) {
 
         if (action.msgId) {
-            const actorId = (combatant as any).actorId;
-            const key = `${actorId}-${action.msgId}`;
+            const combatantId = (combatant as any).id;
+            const key = `${combatantId}-${action.msgId}`;
 
             // 1. Check if this specific message has sustain data attached
             const pendingSustain = this._sustainBuffer.get(key);
@@ -190,10 +191,13 @@ export class ActionManager {
         const actionsSpent = newLogs.filter(e => e.type !== 'reaction').reduce((sum, e) => sum + (e.cost || 0), 0);
         const reactionsSpent = newLogs.filter(e => e.type === 'reaction').reduce((sum, e) => sum + (e.cost || 0), 0);
 
+        const hasQuickenedSnapshot = ActorHandler.hasQuickenedSnapshot(combatant);
+
         const updateData: Record<string, any> = {
             [`flags.${SCOPE}.log`]: newLogs,
             [`flags.${SCOPE}.actionsSpent`]: actionsSpent,
-            [`flags.${SCOPE}.reactionsSpent`]: reactionsSpent
+            [`flags.${SCOPE}.reactionsSpent`]: reactionsSpent,
+            [`flags.${SCOPE}.isQuickenedSnapshot`]: hasQuickenedSnapshot
         };
 
         // 1. Get the PERSISTENT registry. No round check here!
@@ -237,11 +241,12 @@ export class ActionManager {
     /**
      * Determine how many actions / reactions to drain from slows/starts, and logs the system action accordingly
      */
-    private static calculateStartOfTurnDrains(actor: ActorPF2e) {
+    private static calculateStartOfTurnDrains(combatant: CombatantPF2e) {
+        const actor = (combatant as any).actor!;
         const stunnedVal = ActorHandler.getConditionValue(actor, "stunned");
         const slowedVal = ActorHandler.getConditionValue(actor, "slowed");
         const isParalyzed = actor.hasCondition("paralyzed");
-        const maxActions = ActorHandler.getMaxActions(actor);
+        const maxActions = ActorHandler.getMaxActions(combatant);
 
         const logEntries: ActionLogEntry[] = [];
         let actionsSpent = 0;
@@ -276,7 +281,7 @@ export class ActionManager {
         const actor = c.actor as ActorPF2e | undefined;
         if (!actor) return;
 
-        const max = ActorHandler.getMaxActions(actor);
+        const max = ActorHandler.getMaxActions(combatant);
         if (spent < max) {
             const diff = max - spent;
             // No need to cast 'actor' again inside the call, it's already typed now
@@ -293,8 +298,8 @@ export class ActionManager {
         const actor = c.actor as ActorPF2e | null;
         if (!actor || !SettingsManager.get("whisperOverspend") || (game.user?.id !== game.users?.activeGM?.id)) return null;
 
-        const max = ActorHandler.getMaxActions(actor); // Returns 3 or 4
-        const hasQuickened = ActorHandler.hasQuickenedSnapshot(actor);
+        const max = ActorHandler.getMaxActions(combatant); // Returns 3 or 4
+        const hasQuickened = ActorHandler.hasQuickenedSnapshot(combatant);
 
         const actionLog = newLogs.filter(e => e.type !== 'reaction');
         const rawTotalSpent = actionLog.reduce((sum, e) => sum + (e.cost || 0), 0);

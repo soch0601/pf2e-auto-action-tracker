@@ -27,7 +27,7 @@
     "relationships": {
         "requires": [
             {
-                "id": "libWrapper",
+                "id": "lib-wrapper",
                 "reason": "Used for reroll rendering and linking old message id to new message id"
             },
             {

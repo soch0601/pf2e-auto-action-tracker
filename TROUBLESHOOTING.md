@@ -6,7 +6,7 @@
 * **Difficult Terrain:** Ensure your map uses **Foundry V12 Regions** with the `environmentFeature` behavior. Legacy difficult terrain modules may not be detected.
 
 ### 2. A reroll didn't update the action.
-* This module uses `libWrapper` to catch system rerolls. Ensure `libWrapper` is enabled. "If you manually roll a new d20 from the character sheet instead of using the 'Hero Point' or 'Fortune' buttons on the original chat card, the module will see it as a new, separate action.
+* This module uses `lib-wrapper` to catch system rerolls. Ensure `lib-wrapper` is enabled. "If you manually roll a new d20 from the character sheet instead of using the 'Hero Point' or 'Fortune' buttons on the original chat card, the module will see it as a new, separate action.
 
 ### 3. I see "Secret Action" on a pip.
 * This is a privacy feature. If a player or GM rolls a "Blind GM" roll (like Recall Knowledge or a Secret Save), other players will see a "Secret Action" pip but cannot see the label or click it to view the chat card.
