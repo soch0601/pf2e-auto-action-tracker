@@ -44,14 +44,27 @@ jobs:
       - name: Build Code
         run: npm run build
 
-      - name: Update Manifest
+      - name: Update Manifest and Push
         run: |
           VER="${{ steps.get_version.outputs.VERSION }}"
           REPO="${{ github.repository }}"
-          jq ".version = \"$VER\" | 
-              .manifest = \"https://github.com/$REPO/releases/latest/download/module.json\" |
-              .download = \"https://github.com/$REPO/releases/download/v$VER/pf2e-auto-action-tracker.zip\"" \
-              module.json > temp.json && mv temp.json module.json
+          
+          # Update the file
+          jq --arg ver "$VER" --arg repo "$REPO" \
+            '.version = $ver | 
+             .manifest = "https://github.com/\($repo)/releases/latest/download/module.json" | 
+             .download = "https://github.com/\($repo)/releases/download/v\($ver)/pf2e-auto-action-tracker.zip"' \
+             module.json > temp.json && mv temp.json module.json
+          
+          # Configure Git
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          
+          # Commit and Push
+          git add module.json
+          # [skip ci] is vital to prevent the action from triggering itself
+          git commit -m "chore: update manifest to v$VER [skip ci]"
+          git push origin main
 
       - name: Create ZIP
         run: |
@@ -80,4 +93,4 @@ jobs:
           PACKAGE_TOKEN: ${{ secrets.PACKAGE_TOKEN }}
         with:
           package-token: ${{ secrets.PACKAGE_TOKEN }}
-          manifest-url: https://raw.githubusercontent.com/${{ github.repository }}/v${{ steps.get_version.outputs.VERSION }}/module.json
+          manifest-url: https://github.com/${{ github.repository }}/releases/download/v${{ steps.get_version.outputs.VERSION }}/module.json

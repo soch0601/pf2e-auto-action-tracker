@@ -194,7 +194,7 @@ export class MovementManager {
                 await ActionManager.removeAction(combatant, targetId);
 
                 if (!wasMove) {
-                    ChatManager.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${label}`, '');
+                    ChatManager.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${label}`, 'undoAlert');
                 } else {
                     break; // Successfully removed the movement segment
                 }

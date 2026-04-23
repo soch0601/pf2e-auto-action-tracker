@@ -18,7 +18,7 @@ export class SettingsManager {
             scope: "client",
             config: true,
             type: Boolean,
-            default: true
+            default: false
         });
 
         settings.register(SCOPE, "whisperReactionOverspend", {
@@ -27,7 +27,7 @@ export class SettingsManager {
             scope: "client",
             config: true,
             type: Boolean,
-            default: true
+            default: false
         });
 
         settings.register(SCOPE, "whisperUnderspend", {
@@ -36,12 +36,30 @@ export class SettingsManager {
             scope: "client",
             config: true,
             type: Boolean,
-            default: true
+            default: false
         });
 
         settings.register(SCOPE, "whisperSustain", {
             name: "Remind to Sustain",
             hint: "Whisper player at turn-start if they have active effects to Sustain.",
+            scope: "client",
+            config: true,
+            type: Boolean,
+            default: true
+        });
+
+        settings.register(SCOPE, "whisperComplexAction", {
+            name: "Alert on Complex Action Break",
+            hint: "Whisper player/GM when a complex action has been broken without completing.",
+            scope: "client",
+            config: true,
+            type: Boolean,
+            default: false
+        });
+
+        settings.register(SCOPE, "undoAlert", {
+            name: "Alert on Move undo causes Action Undo",
+            hint: "Whisper player/GM when an undo (Ctrl + Z) forces undo of a non-movement action (like strike).",
             scope: "client",
             config: true,
             type: Boolean,
