@@ -7,9 +7,10 @@ import { MovementManager } from "./MovementManager";
 import { WrapperManager } from "./WrapperManager";
 import { SocketsManager } from "./SocketManager";
 import { ChatMessagePF2e, CombatantPF2e, EncounterPF2e } from "module-helpers"
-import { logConsole } from "./logger";
+import { logConsole, logError, logInfo, logWarn } from "./logger";
 import { SCOPE, recentIntent } from "./globals";
 
+// string is the combatant ID.
 const _queues = new Map<string, Promise<void>>();
 
 // Initialization
@@ -49,11 +50,10 @@ Hooks.on("closeDamageModifierDialog", async (app: any) => {
         tokenId ? c.tokenId === tokenId : c.actorId === actorId
     );
 
-    // 4. Use your semaphore to safely pop the abandoned intent from the queue
     const c = combatant as any;
     if (!c?.id || !combatant) return;
 
-    // Safety cleanup is a write operation, enqueue it
+    // 4. Safety cleanup is a write operation, enqueue it
     enqueueAction(c.id, async () => await ChatManager.handleDamageModifierDialogRender(combatant, app));
 });
 
@@ -92,13 +92,11 @@ Hooks.on("deleteChatMessage", async (message: ChatMessagePF2e) => {
 Hooks.on("deleteCombat", async (combat: EncounterPF2e) => {
     const g = game as unknown as Game;
 
-    // Ensure only the primary GM clears the Quickened snapshot flags
     if (game.user?.id !== game.users?.activeGM?.id) return;
 
     for (const combatant of (combat.combatants as any)) {
         const actor = combatant.actor;
         if (actor) {
-            // Passing 'any' here satisfies the ActorPF2e requirement of the handler
             await ActorHandler.cleanup(actor);
         }
     }
@@ -128,6 +126,8 @@ Hooks.on("preCreateChatMessage", (message: any) => {
 
 // Rendering the chat message
 Hooks.on("renderChatMessage", (message: ChatMessagePF2e, html: any) => {
+    // Does not need enqueuing - This only create messages and click handlers -> which creates more messages.  So no
+    // modifications of actions here
     ChatManager.onRenderChatMessage(message, html);
 });
 
@@ -194,7 +194,6 @@ Hooks.on("updateChatMessage", (message: ChatMessagePF2e, updateData: any) => {
 Hooks.on("updateCombat", async (combat: EncounterPF2e, updateData: any, options: any, userId: string) => {
     const g = game as unknown as Game;
 
-    // Use Active GM check to ensure only one client processes the turn transition
     if (game.user?.id !== game.users?.activeGM?.id) return;
 
     const isTurnChange = "turn" in updateData || "round" in updateData;
@@ -223,16 +222,15 @@ Hooks.on("updateToken", (tokenDoc: any, update: any) => {
     const combatant: Combatant = tokenDoc.combatant;
     if (!combatant.id) return;
 
-    // Enqueue the movement
     enqueueAction(combatant.id, async () => await MovementManager.handleTokenUpdate(tokenDoc, update));
 });
 
 export async function enqueueAction(combatantId: string, actionFn: () => Promise<void>) {
     const existingPromise = _queues.get(combatantId);
 
-    // LOGGING: Check if we are actually waiting
+    // LOGGING: Check if we are actually waiting, useful if debugMode is on I think?
     if (existingPromise) {
-        console.warn(`Action Tracker | RACE PREVENTED: New action for ${combatantId} is waiting for a previous operation to finish.`);
+        logWarn(`Action Tracker | RACE PREVENTED: New action for ${combatantId} is waiting for a previous operation to finish.`);
     }
 
     const startPromise = existingPromise || Promise.resolve();
@@ -243,12 +241,12 @@ export async function enqueueAction(combatantId: string, actionFn: () => Promise
             await actionFn();
             const end = performance.now();
 
-            // LOGGING: Performance check
+            // LOGGING: Performance check - also useful stat to know if people still have trouble with this
             if ((end - start) > 100) {
-                console.log(`Action Tracker | Slow Operation: ${combatantId} took ${Math.round(end - start)}ms`);
+                logInfo(`Action Tracker | Slow Operation: ${combatantId} took ${Math.round(end - start)}ms`);
             }
         } catch (err) {
-            console.error("Action Tracker | Queue Error:", err);
+            logError("Action Tracker | Queue Error:", err);
         }
     });
 
