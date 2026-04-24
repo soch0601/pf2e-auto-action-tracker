@@ -9,8 +9,6 @@ const MOVEMENT_FLAG = "movementHistorySnapshot";
 
 export class MovementManager {
 
-    // Ensure we only process one movement (and one movement fully) before the next one
-    private static _processingQueue = new Map<string, Promise<void>>();
     // Synchronous local storage for history length to prevent race conditions
     private static _historyLengths = new Map<string, number>();
     /**
@@ -26,19 +24,14 @@ export class MovementManager {
 
         // Use tokenDoc.id as the primary key for physical movement history
         const tokenId = tokenDoc.id;
-        const existingPromise = MovementManager._processingQueue.get(tokenId) || Promise.resolve();
+        const history = tokenDoc._movementHistory || [];
+        const coordList = history.map((p: any) => ({ x: p.x, y: p.y, elevation: p.elevation ?? 0 }));
+        try {
+            await MovementManager._processMovement(combatant, tokenDoc, coordList, false);
+        } catch (err) {
+            logError("Movement Processing Error:", err);
+        }
 
-        const newPromise = existingPromise.then(async () => {
-            const history = tokenDoc._movementHistory || [];
-            const coordList = history.map((p: any) => ({ x: p.x, y: p.y, elevation: p.elevation ?? 0 }));
-            try {
-                await MovementManager._processMovement(combatant, tokenDoc, coordList, false);
-            } catch (err) {
-                logError("Movement Processing Error:", err);
-            }
-        });
-
-        MovementManager._processingQueue.set(tokenId, newPromise);
     }
 
     /**

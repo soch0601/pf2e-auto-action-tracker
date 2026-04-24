@@ -17,24 +17,6 @@ export class ChatManager {
     // Keyed by Combatant ID to allow multiple combatants to process in parallel
     private static _queueSemaphore = new Map<string, Promise<void>>();
 
-    /**
-     * Helper to ensure flag updates for a specific combatant happen sequentially
-     */
-    private static async _enqueueUpdate(combatantId: string, updateFn: () => Promise<void>) {
-        const existingPromise = this._queueSemaphore.get(combatantId) || Promise.resolve();
-
-        const newPromise = existingPromise.then(async () => {
-            try {
-                await updateFn();
-            } catch (err) {
-                console.error("PF2e Action Automation | Queue Update Error:", err);
-            }
-        });
-
-        this._queueSemaphore.set(combatantId, newPromise);
-        return newPromise;
-    }
-
     public static registerOverrideListeners() {
         document.addEventListener('click', async (event) => {
             const target = event.target as HTMLElement;
@@ -50,12 +32,10 @@ export class ChatManager {
                 const combatant = this.getCombatantFromMsg(message);
                 if (!combatant) return;
 
-                await ChatManager._enqueueUpdate((combatant as any).id, async () => {
-                    const c = combatant as any;
-                    const queue = (c.getFlag(SCOPE, 'pendingDamageQueue') as string[]) || [];
-                    queue.push(originMsgId);
-                    await c.setFlag(SCOPE, 'pendingDamageQueue', queue);
-                });
+                const c = combatant as any;
+                const queue = (c.getFlag(SCOPE, 'pendingDamageQueue') as string[]) || [];
+                queue.push(originMsgId);
+                await c.setFlag(SCOPE, 'pendingDamageQueue', queue);
 
                 // Note: If the dialog opens, the render hook (Step 2) will 
                 // handle moving this ID from the queue to the Dialog instance.
@@ -64,19 +44,17 @@ export class ChatManager {
     }
 
     public static async handleDamageModifierDialogRender(combatant: CombatantPF2e, app: any) {
-        await ChatManager._enqueueUpdate((combatant as any).id, async () => {
-            const c = combatant as any;
-            const queue = (c.getFlag(SCOPE, 'pendingDamageQueue') as string[]) || [];
-            if (queue.length === 0) return;
+        const c = combatant as any;
+        const queue = (c.getFlag(SCOPE, 'pendingDamageQueue') as string[]) || [];
+        if (queue.length === 0) return;
 
-            const originMsgId = queue.pop();
-            if (!originMsgId) return;
+        const originMsgId = queue.pop();
+        if (!originMsgId) return;
 
-            await c.setFlag(SCOPE, 'pendingDamageQueue', queue);
+        await c.setFlag(SCOPE, 'pendingDamageQueue', queue);
 
-            // Attach to the app instance AFTER the flag is safely updated
-            app.options.originatingMessageId = originMsgId;
-        });
+        // Attach to the app instance AFTER the flag is safely updated
+        app.options.originatingMessageId = originMsgId;
     }
 
     public static getCombatantFromMsg(message: any): CombatantPF2e | undefined {
@@ -110,19 +88,16 @@ export class ChatManager {
             delete activeDialog.options.originatingMessageId;
         } else {
             // B. Fallback to Queue (The Shift+Click scenario)
-            // We wrap this in the semaphore too to ensure we don't have a read/write collision
-            await this._enqueueUpdate((combatant as any).id, async () => {
-                const c = combatant as any;
-                const queue = (c.getFlag(SCOPE, 'pendingDamageQueue') as string[]) || [];
+            const c = combatant as any;
+            const queue = (c.getFlag(SCOPE, 'pendingDamageQueue') as string[]) || [];
 
-                originatingMsgId = queue.shift(); // FIFO for rolls
+            originatingMsgId = queue.shift(); // FIFO for rolls
 
-                if (queue.length > 0) {
-                    await c.setFlag(SCOPE, 'pendingDamageQueue', queue);
-                } else {
-                    await c.unsetFlag(SCOPE, 'pendingDamageQueue');
-                }
-            });
+            if (queue.length > 0) {
+                await c.setFlag(SCOPE, 'pendingDamageQueue', queue);
+            } else {
+                await c.unsetFlag(SCOPE, 'pendingDamageQueue');
+            }
         }
 
         if (!originatingMsgId) {
@@ -355,9 +330,9 @@ export class ChatManager {
     /**
      * If we delete a message, delete the associated action (unless it is part of the reroll queue)
      */
-    static handleDeletedMessage(combatant: CombatantPF2e, msgId: string) {
+    static async handleDeletedMessage(combatant: CombatantPF2e, msgId: string) {
         if (this.rerollQueueIncludes(combatant, msgId)) return;
-        ActionManager.removeAction(combatant, msgId);
+        await ActionManager.removeAction(combatant, msgId);
     }
 
     /**

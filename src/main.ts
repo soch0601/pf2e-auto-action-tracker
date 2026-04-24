@@ -10,6 +10,8 @@ import { ChatMessagePF2e, CombatantPF2e, EncounterPF2e } from "module-helpers"
 import { logConsole } from "./logger";
 import { SCOPE, recentIntent } from "./globals";
 
+const _queues = new Map<string, Promise<void>>();
+
 // Initialization
 Hooks.once("init", () => {
     SettingsManager.registerSettings();
@@ -47,35 +49,43 @@ Hooks.on("closeDamageModifierDialog", async (app: any) => {
         tokenId ? c.tokenId === tokenId : c.actorId === actorId
     );
 
-    // GUARD: If no combatant is found (e.g. combat ended or out of combat), stop.
-    if (!combatant) return;
-
     // 4. Use your semaphore to safely pop the abandoned intent from the queue
     const c = combatant as any;
-    await ChatManager.handleDamageModifierDialogRender(combatant, app);
+    if (!c?.id || !combatant) return;
+
+    // Safety cleanup is a write operation, enqueue it
+    enqueueAction(c.id, async () => await ChatManager.handleDamageModifierDialogRender(combatant, app));
 });
 
 // Create Chat Hook
 Hooks.on("createChatMessage", async (message: ChatMessagePF2e) => {
     if (game.user?.id !== game.users?.activeGM?.id) return;
-    await ChatManager.handleChatPayload(message);
+
+    const combatant = ChatManager.getCombatantFromMsg(message);
+    const c = combatant as unknown as Combatant
+    if (!c?.id) return;
+
+    // Enqueue the chat payload
+    enqueueAction(c.id, async () => await ChatManager.handleChatPayload(message));
 });
 
 // Delete Chat hook
-Hooks.on("deleteChatMessage", (message: ChatMessagePF2e) => {
+Hooks.on("deleteChatMessage", async (message: ChatMessagePF2e) => {
     if (!(game as any).combat?.active || !message.id) return;
 
     const speaker = message.speaker;
     const combatant = game.combat?.combatants.find((c: any) =>
         speaker.token ? c.tokenId === speaker.token : c.actorId === speaker.actor
     );
+    const c = combatant as any as Combatant
 
-    if (!combatant) return;
+    if (!combatant || !c.id) return;
 
     const context = message.flags?.pf2e;
     if (context && "isReroll" in context && context.isReroll) return;
 
-    ChatManager.handleDeletedMessage(combatant, message.id);
+    // Enqueue deleting the action
+    enqueueAction(c.id, async () => await ChatManager.handleDeletedMessage(combatant, message.id!));
 });
 
 // End of Combat hook
@@ -104,7 +114,6 @@ Hooks.on("preCreateChatMessage", (message: any) => {
     const speaker = message.speaker;
     const uniqueKey = speaker.token || speaker.actor;
     const intentItemId = recentIntent.get(uniqueKey);
-    const combatant = ChatManager.getCombatantFromMsg(message);
 
     // PF2e uses origin.uuid for item links in chat
     const messageItemId = message.flags?.pf2e?.origin?.uuid?.split('.').pop();
@@ -143,13 +152,26 @@ Hooks.on("renderDamageModifierDialog", async (app: any, html: JQuery) => {
     );
 
     if (!combatant) return;
-    ChatManager.handleDamageModifierDialogRender(combatant, app);
+    const c = combatant as unknown as Combatant
+    if (!c?.id || !combatant) return;
+
+    enqueueAction(c.id, async () => await ChatManager.handleDamageModifierDialogRender(combatant, app));
 });
 
 // Chat card changed (like Heal selecting a cost or visibility)
 Hooks.on("updateChatMessage", (message: ChatMessagePF2e, updateData: any) => {
-    if (updateData.flags?.pf2e) {
-        ChatManager.handleChatPayload(message);
+    const combat = game.combat;
+    if (!combat?.active) return;
+    // Find the combatant associated with this message
+    const speaker = message.speaker;
+    const combatant = combat.combatants.find((c: any) =>
+        speaker.token ? c.tokenId === speaker.token : c.actorId === speaker.actor
+    );
+    const c = combatant as unknown as Combatant
+    if (!c?.id) return;
+
+    if (updateData.flags?.pf2e || updateData.whisper) {
+        enqueueAction(c.id, async () => await ChatManager.handleChatPayload(message));
     }
 
     // Check for any visibility-related changes
@@ -159,15 +181,6 @@ Hooks.on("updateChatMessage", (message: ChatMessagePF2e, updateData: any) => {
         "flags" in updateData; // Catching system-specific visibility flags if any
 
     if (visibilityChanged) {
-        const combat = game.combat;
-        if (!combat?.active) return;
-
-        // Find the combatant associated with this message
-        const speaker = message.speaker;
-        const combatant = combat.combatants.find((c: any) =>
-            speaker.token ? c.tokenId === speaker.token : c.actorId === speaker.actor
-        );
-
         if (combatant) {
             // Trigger a re-render. 
             // renderPip will now see the new message.visible status 
@@ -205,10 +218,40 @@ Hooks.on("updateCombat", async (combat: EncounterPF2e, updateData: any, options:
 // Movement Hook
 Hooks.on("updateToken", (tokenDoc: any, update: any) => {
     if (game.user?.id !== game.users?.activeGM?.id) return;
-
-    // Only care if x or y changed or movement type
     if (!("x" in update || "y" in update || update.movementAction)) return;
 
-    // Delegate everything to MovementManager
-    MovementManager.handleTokenUpdate(tokenDoc, update);
+    const combatant: Combatant = tokenDoc.combatant;
+    if (!combatant.id) return;
+
+    // Enqueue the movement
+    enqueueAction(combatant.id, async () => await MovementManager.handleTokenUpdate(tokenDoc, update));
 });
+
+export async function enqueueAction(combatantId: string, actionFn: () => Promise<void>) {
+    const existingPromise = _queues.get(combatantId);
+
+    // LOGGING: Check if we are actually waiting
+    if (existingPromise) {
+        console.warn(`Action Tracker | RACE PREVENTED: New action for ${combatantId} is waiting for a previous operation to finish.`);
+    }
+
+    const startPromise = existingPromise || Promise.resolve();
+
+    const newPromise = startPromise.then(async () => {
+        try {
+            const start = performance.now();
+            await actionFn();
+            const end = performance.now();
+
+            // LOGGING: Performance check
+            if ((end - start) > 100) {
+                console.log(`Action Tracker | Slow Operation: ${combatantId} took ${Math.round(end - start)}ms`);
+            }
+        } catch (err) {
+            console.error("Action Tracker | Queue Error:", err);
+        }
+    });
+
+    _queues.set(combatantId, newPromise);
+    return newPromise;
+}
