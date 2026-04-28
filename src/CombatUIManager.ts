@@ -51,10 +51,13 @@ export class CombatUIManager {
         const log = (c.getFlag(SCOPE, "log") as ActionLogEntry[]) || [];
         const flattenedLog = ActionManager.getFlattenedActions(combatant);
 
-        const isQuickened = ActorHandler.hasQuickenedSnapshot(combatant);
+        const actionSlotsForRenderKey = ActorHandler.getSlots(combatant, 'action');
+        const reactionSlotsForRenderKey = ActorHandler.getSlots(combatant, 'reaction');
+
+        const actionSlotsKey = actionSlotsForRenderKey.map(s => s.definition?.slug || 'base').join(',');
         const currentMAP = ActionManager.getCurrentMAP(combatant);
         const mapDisplay = getMapDisplayState(currentMAP);
-        const maxReactions = (actor.system as any).resources?.reactions?.max || 1;
+        const maxReactions = reactionSlotsForRenderKey.length;
         const renderKeyLog = flattenedLog.map(entry => {
             const message = game.messages.get(entry.msgId || "");
             const visibilityKey = message
@@ -68,7 +71,7 @@ export class CombatUIManager {
             isGM,
             isOwner,
             isPC,
-            isQuickened,
+            actionSlotsKey,
             mapAttackCount: currentMAP.attackCount,
             maxReactions,
             log: renderKeyLog,
@@ -83,29 +86,44 @@ export class CombatUIManager {
         const charMap: Record<string, string> = { "1": "A", "2": "D", "3": "T" };
 
         // --- 1. Allocation Logic ---
-        const actions = log.filter(e => e.type !== 'reaction');
-        let quickenedSlot: { entry: ActionLogEntry, index: number } | null = null;
-        const standardSlots: { entry: ActionLogEntry, index: number, subIndex: number }[] = [];
-        const overspendSlots: { entry: ActionLogEntry, index: number, subIndex: number }[] = [];
+        const { slots: actionSlots, overspent: overspentActions } = ActorHandler.allocateSlots(combatant, log, 'action');
 
-        for (const [index, entry] of actions.entries()) {
-            let costRemaining = entry.cost;
-            const canUseQuickened = entry.isQuickenedEligible;
+        const pipsToRender: { entry: ActionLogEntry, slot?: any, isGold: boolean, isOver: boolean, subIdx: number, totalCost: number }[] = [];
 
-            // A: Fill Quickened Slot first if eligible
-            if (isQuickened && !quickenedSlot && canUseQuickened) {
-                quickenedSlot = { entry, index };
-                costRemaining -= 1;
+        for (const slot of actionSlots) {
+            if (slot.spentBy) {
+                const subIdx = pipsToRender.filter(p => p.entry === slot.spentBy).length;
+                pipsToRender.push({
+                    entry: slot.spentBy,
+                    slot,
+                    isGold: !slot.isBase,
+                    isOver: false,
+                    subIdx,
+                    totalCost: slot.spentBy.cost
+                });
+            } else {
+                pipsToRender.push({
+                    entry: null as any,
+                    slot,
+                    isGold: !slot.isBase,
+                    isOver: false,
+                    subIdx: 0,
+                    totalCost: 1
+                });
             }
+        }
 
-            // B: Distribute the REST of the cost to standard or overspend
-            for (let i = 0; i < costRemaining; i++) {
-                const subIdx = entry.cost - costRemaining + i;
-                if (standardSlots.length < maxStandardActions) {
-                    standardSlots.push({ entry, index, subIndex: subIdx });
-                } else {
-                    overspendSlots.push({ entry, index, subIndex: subIdx });
-                }
+        for (const entry of overspentActions) {
+            const assignedPips = pipsToRender.filter(p => p.entry === entry).length;
+            const remainingCost = entry.cost - assignedPips;
+            for (let i = 0; i < remainingCost; i++) {
+                pipsToRender.push({
+                    entry,
+                    isGold: false,
+                    isOver: true,
+                    subIdx: assignedPips + i,
+                    totalCost: entry.cost
+                });
             }
         }
 
@@ -129,12 +147,36 @@ export class CombatUIManager {
         /**
          * Helper to render individual pips with correct PF2e Action Symbols
          */
-        const renderPip = (entry: ActionLogEntry, idx: number, subIdx: number, isGold: boolean, isOver: boolean) => {
+        const renderPip = (pip: any) => {
 
             if (pipsRendered >= MAX_PIPS) {
-                overflowCount++;
+                if (pip.isOver) overflowCount++;
                 return;
             }
+
+            if (!pip.entry) {
+                // Unspent
+                const span = document.createElement("span");
+                span.className = `action-icon unspent ${pip.isGold ? 'quickened' : ''} tracker-tooltip`;
+
+                let tooltip = "Available Action";
+                if (pip.slot && pip.slot.definition) {
+                    tooltip = `Available Action (${pip.slot.definition.name})`;
+                } else if (pip.isGold) {
+                    tooltip = "Available Bonus Action";
+                }
+
+                span.dataset.tooltip = tooltip;
+                span.textContent = "A";
+                actionLine.appendChild(span);
+                pipsRendered++;
+                return;
+            }
+
+            const entry = pip.entry;
+            const isGold = pip.isGold;
+            const isOver = pip.isOver;
+            const subIdx = pip.subIdx;
 
             const message = game.messages.get(entry.msgId || "");
 
@@ -158,13 +200,19 @@ export class CombatUIManager {
 
             // 2. Logic for Icons (A, D, T)
             let iconChar = "";
+
             if (isGold) {
-                iconChar = "A";
+                iconChar = "A"; // Gold slots always remain entirely separate single pips
             } else {
-                const siblingPips = [...standardSlots, ...overspendSlots].filter(s => s.index === idx);
-                const firstSubIdxInGroup = siblingPips[0]?.subIndex ?? -1;
-                if (subIdx === firstSubIdxInGroup) {
-                    iconChar = charMap[siblingPips.length.toString()] || "A";
+                // Determine how many NON-GOLD pips this entry consumes, and which one this is.
+                // This allows multi-actions that span Gold + Normal slots to safely isolate the Gold pip
+                // and then "combine normally" across the remaining Normal pips.
+                const normalPipsForEntry = pipsToRender.filter(p => p.entry === entry && !p.isGold);
+                const normalTotalCost = normalPipsForEntry.length;
+                const normalSubIdx = normalPipsForEntry.indexOf(pip);
+
+                if (normalSubIdx === 0) {
+                    iconChar = charMap[normalTotalCost.toString()] || "A";
                 }
             }
 
@@ -185,7 +233,11 @@ export class CombatUIManager {
 
             } else {
                 // Normal behavior for those with permission
-                span.dataset.tooltip = `Used: ${displayLabel}${isGold ? ' (Bonus Action)' : ''}${isOver ? ' (Overspent)' : ''}`;
+                let suffix = '';
+                if (pip.slot && pip.slot.definition) suffix = ` (${pip.slot.definition.name})`;
+                else if (isGold) suffix = ` (Bonus Action)`;
+
+                span.dataset.tooltip = `Used: ${displayLabel}${suffix}${isOver ? ' (Overspent)' : ''}`;
 
                 if (entry.type === "system" || entry.msgId === "System") {
                     span.style.cursor = "default";
@@ -201,7 +253,7 @@ export class CombatUIManager {
             actionLine.appendChild(span);
             pipsRendered++;
 
-            if (isOver && subIdx === entry.cost - 1) {
+            if (isOver && subIdx === pip.totalCost - 1) {
                 const warn = document.createElement("span");
                 warn.className = "overspend-exclamation";
                 warn.textContent = "!";
@@ -210,19 +262,12 @@ export class CombatUIManager {
         };
 
         // --- 3. Build the DOM ---
+        for (let i = 0; i < pipsToRender.length; i++) {
+            const pip = pipsToRender[i];
+            renderPip(pip);
 
-        // Render Quickened Slot
-        if (isQuickened) {
-            if (quickenedSlot) {
-                renderPip(quickenedSlot.entry, quickenedSlot.index, 0, true, false);
-            } else {
-                const span = document.createElement("span");
-                span.className = "action-icon unspent quickened tracker-tooltip";
-                span.dataset.tooltip = "Quickened Action (Available)";
-                span.textContent = "A";
-                actionLine.appendChild(span);
-            }
-            if (!isCompact) {
+            // Add divider if transitioning from gold to non-gold
+            if (pip.isGold && !isCompact && i < pipsToRender.length - 1 && !pipsToRender[i + 1].isGold) {
                 const divider = document.createElement("span");
                 divider.className = "divider";
                 divider.textContent = "|";
@@ -230,29 +275,10 @@ export class CombatUIManager {
             }
         }
 
-        // Render Standard (Spent)
-        standardSlots.forEach(s => renderPip(s.entry, s.index, s.subIndex, false, false));
-
-        // Render Standard (Unspent)
-        const unspentCount = maxStandardActions - standardSlots.length;
-        for (let i = 0; i < unspentCount; i++) {
-            if (pipsRendered >= MAX_PIPS) break; // Don't show unspent pips if we are already full
-            pipsRendered++;
-
-            const span = document.createElement("span");
-            span.className = "action-icon unspent tracker-tooltip";
-            span.dataset.tooltip = "Available Action";
-            span.textContent = "A";
-            actionLine.appendChild(span);
-        }
-
-        // Render Overspend
+        // Render Overspend Overflow Indicator
         let compactOverspend = false;
         if (isCompact) {
-            overflowCount += overspendSlots.length;
             compactOverspend = hasCompactOverspendTint(overflowCount);
-        } else {
-            overspendSlots.forEach(s => renderPip(s.entry, s.index, s.subIndex, false, true));
         }
 
         // Render Overflow Indicator
@@ -318,8 +344,7 @@ export class CombatUIManager {
         container.appendChild(actionLine);
 
         // --- 4. Reactions Line ---
-        const fullLog = ActionManager.getActions(combatant); // Get the original full log
-        const reactionLog = fullLog.filter(e => e.type === 'reaction');
+        const { slots: reactionSlots } = ActorHandler.allocateSlots(combatant, log, 'reaction');
 
         const reactionLine = document.createElement("div");
         reactionLine.className = `reaction-line ${isCompact ? 'compact' : ''}`.trim();
@@ -332,22 +357,33 @@ export class CombatUIManager {
             actionLine.appendChild(divider);
         }
 
-        for (let i = 0; i < maxReactions; i++) {
-            const entry = reactionLog[i];
+        reactionSlots.forEach(slot => {
             const span = document.createElement("span");
+            const entry = slot.spentBy;
             span.className = `action-icon reaction ${entry ? 'spent' : 'unspent'} tracker-tooltip`;
-            span.dataset.tooltip = entry?.label || 'Reaction Available';
+
+            let tooltip = 'Reaction Available';
+            if (entry) {
+                let suffix = '';
+                if (slot.definition) suffix = ` (${slot.definition.name})`;
+                tooltip = `Used: ${entry.label}${suffix}`;
+            } else if (slot.definition) {
+                tooltip = `Available Reaction (${slot.definition.name})`;
+            }
+
+            span.dataset.tooltip = tooltip;
             span.textContent = "R";
 
             if (entry) {
-                // Find the index of this entry in the ORIGINAL log for the context menu handler
+                const fullLog = ActionManager.getActions(combatant);
                 const originalIndex = fullLog.findIndex(e => e.msgId === entry.msgId);
                 span.dataset.msgId = entry.msgId;
                 span.dataset.index = originalIndex.toString();
             }
 
             (isCompact ? actionLine : reactionLine).appendChild(span);
-        }
+        });
+
         if (!isCompact && mapDisplay.core.text) {
             const divider = document.createElement("span");
             divider.className = "divider";

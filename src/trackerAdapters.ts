@@ -83,7 +83,7 @@ export function getTrackerRenderKey({
     isGM,
     isOwner,
     isPC,
-    isQuickened,
+    actionSlotsKey,
     mapAttackCount,
     maxReactions,
     log,
@@ -93,7 +93,7 @@ export function getTrackerRenderKey({
     isGM: boolean;
     isOwner: boolean;
     isPC: boolean;
-    isQuickened: boolean;
+    actionSlotsKey: string;
     mapAttackCount: number;
     maxReactions: number;
     log: RenderKeyEntry[];
@@ -116,7 +116,7 @@ export function getTrackerRenderKey({
         `gm:${isGM ? 1 : 0}`,
         `owner:${isOwner ? 1 : 0}`,
         `pc:${isPC ? 1 : 0}`,
-        `quick:${isQuickened ? 1 : 0}`,
+        `slots:${actionSlotsKey}`,
         `map:${mapAttackCount}`,
         `reactions:${maxReactions}`,
         entries,

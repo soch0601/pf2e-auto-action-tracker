@@ -1,5 +1,8 @@
-import { SCOPE } from "./globals";
-import { ActorPF2e, ConditionPF2e, CombatantPF2e } from "module-helpers";
+import { SCOPE } from "./globals.ts";
+import type { ActorPF2e, ConditionPF2e, CombatantPF2e } from "module-helpers";
+import type { ActionLogEntry } from "./ActionManager.ts";
+import { AddActionsLibrary } from "./addActionsData/AddActionsLibrary.ts";
+import type { ActionSlot } from "./addActionsData/types.d.ts";
 
 interface TurnSnapshot {
     isQuickened: boolean;
@@ -47,8 +50,18 @@ export class ActorHandler {
      * Calculates max actions for the turn for the player
      */
     static getMaxActions(combatant: CombatantPF2e, quickenedOverride?: boolean): number {
-        const isQuickened = quickenedOverride ?? this.hasQuickenedSnapshot(combatant);
-        return isQuickened ? 4 : 3;
+        // Dynamically calculate true max actions, including feats
+        const slots = this.getSlots(combatant, 'action');
+        let length = slots.length;
+
+        // If quickenedOverride is provided and differs from the current snapshot, adjust length
+        if (quickenedOverride !== undefined) {
+            const snapshot = this.hasQuickenedSnapshot(combatant);
+            if (quickenedOverride && !snapshot) length += 1;
+            if (!quickenedOverride && snapshot) length -= 1;
+        }
+
+        return length;
     }
 
     /**
@@ -109,5 +122,98 @@ export class ActorHandler {
      */
     static async cleanup(combatant: CombatantPF2e): Promise<void> {
         await (combatant as any).setFlag(SCOPE, "isQuickenedSnapshot", null);
+    }
+
+    /**
+     * Generates available Action or Reaction slots for the actor, sorted by restrictiveness.
+     */
+    static getSlots(combatant: CombatantPF2e, type: 'action' | 'reaction'): ActionSlot[] {
+        const slots: ActionSlot[] = [];
+        const actor = (combatant as any).actor;
+        if (!actor) return slots;
+
+        // 1. Generate Base Slots
+        if (type === 'action') {
+            const maxBase = 3;
+            for (let i = 0; i < maxBase; i++) {
+                slots.push({ isBase: true, type: 'action' });
+            }
+        } else {
+            const maxReactions = (actor.system as any).resources?.reactions?.max || 1;
+            for (let i = 0; i < maxReactions; i++) {
+                slots.push({ isBase: true, type: 'reaction' });
+            }
+        }
+
+        // 2. Generate Extra Slots
+        for (const [key, def] of Object.entries(AddActionsLibrary)) {
+            if (def.type !== type) continue;
+
+            let hasFeature = false;
+
+            // Special case for Quickened which uses a snapshot
+            if (key === 'quickened' && type === 'action') {
+                hasFeature = this.hasQuickenedSnapshot(combatant);
+            } else {
+                hasFeature = actor.items.some((i: any) => i.slug === key || i.system?.slug === key) || actor.hasCondition(key);
+            }
+
+            if (hasFeature) {
+                for (let i = 0; i < def.grants; i++) {
+                    slots.push({ isBase: false, type: type, definition: def });
+                }
+            }
+        }
+
+        // 3. Sort: Most restrictive first.
+        slots.sort((a, b) => {
+            if (a.isBase && !b.isBase) return 1; // Base goes last
+            if (!a.isBase && b.isBase) return -1;
+            if (a.isBase && b.isBase) return 0;
+
+            const aLen = a.definition?.allowedSlugs?.length ?? Infinity;
+            const bLen = b.definition?.allowedSlugs?.length ?? Infinity;
+            return aLen - bLen;
+        });
+
+        return slots;
+    }
+
+    /**
+     * Calculates which logged actions consume which slots, returning both the filled slots and any overspent actions.
+     */
+    static allocateSlots(combatant: CombatantPF2e, logs: ActionLogEntry[], type: 'action' | 'reaction'): { slots: ActionSlot[], overspent: ActionLogEntry[] } {
+        const slots = this.getSlots(combatant, type);
+        const overspent: ActionLogEntry[] = [];
+
+        // Filter logs by type (System drains also consume action slots)
+        const typeLogs = logs.filter(l => l.type === type || (type === 'action' && l.type === 'system'));
+
+        for (const log of typeLogs) {
+            // Reactions in PF2e often have cost: 0. We enforce they take 1 slot.
+            let costRemaining = type === 'reaction' ? Math.max(1, log.cost) : log.cost;
+
+            while (costRemaining > 0) {
+                const slotIndex = slots.findIndex(s => {
+                    if (s.spentBy) return false;
+                    if (s.isBase) return true;
+                    if (log.type === 'system' || log.msgId === 'System') return true;
+
+                    return s.definition?.allowedSlugs?.includes(log.slug || "") ?? false;
+                });
+
+                if (slotIndex !== -1) {
+                    slots[slotIndex].spentBy = log;
+                    costRemaining--;
+                } else {
+                    if (!overspent.includes(log)) {
+                        overspent.push(log);
+                    }
+                    costRemaining--;
+                }
+            }
+        }
+
+        return { slots, overspent };
     }
 }

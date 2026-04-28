@@ -235,9 +235,60 @@ Hooks.on("updateToken", (tokenDoc: any, update: any) => {
     if (!("x" in update || "y" in update || update.movementAction)) return;
 
     const combatant: Combatant = tokenDoc.combatant;
-    if (!combatant.id) return;
+    if (!combatant?.id) return;
 
     enqueueAction(combatant.id, async () => await MovementManager.handleTokenUpdate(tokenDoc, update));
+});
+
+// Condition Hooks for dynamic Reaction Loss
+Hooks.on("createItem", async (item: any) => {
+    if (game.user?.id !== game.users?.activeGM?.id) return;
+    if (item.type !== "condition" && item.type !== "effect") return;
+
+    if (item.slug === "stunned" || item.slug === "paralyzed") {
+        const actor = item.parent;
+        if (!actor) return;
+
+        const combatant = game.combat?.combatants.find((c: any) => c.actorId === actor.id);
+        const c = combatant as unknown as Combatant
+        if (!c?.id || !combatant) return;
+
+        enqueueAction(c.id, async () => await ActionManager.handleConditionChange(combatant));
+    }
+});
+
+Hooks.on("updateItem", async (item: any, updateData: any) => {
+    if (game.user?.id !== game.users?.activeGM?.id) return;
+    if (item.type !== "condition" && item.type !== "effect") return;
+
+    if (item.slug === "stunned" || item.slug === "paralyzed") {
+        if (updateData.system?.value !== undefined) {
+            const actor = item.parent;
+            if (!actor) return;
+
+            const combatant = game.combat?.combatants.find((c: any) => c.actorId === actor.id);
+            const c = combatant as unknown as Combatant
+            if (!c?.id || !combatant) return;
+
+            enqueueAction(c.id, async () => await ActionManager.handleConditionChange(combatant));
+        }
+    }
+});
+
+Hooks.on("deleteItem", async (item: any) => {
+    if (game.user?.id !== game.users?.activeGM?.id) return;
+    if (item.type !== "condition" && item.type !== "effect") return;
+
+    if (item.slug === "stunned" || item.slug === "paralyzed") {
+        const actor = item.parent;
+        if (!actor) return;
+
+        const combatant = game.combat?.combatants.find((c: any) => c.actorId === actor.id);
+        const c = combatant as unknown as Combatant
+        if (!c?.id || !combatant) return;
+
+        enqueueAction(c.id, async () => await ActionManager.handleConditionChange(combatant));
+    }
 });
 
 export async function enqueueAction(combatantId: string, actionFn: () => Promise<void>) {

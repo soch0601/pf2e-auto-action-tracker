@@ -506,29 +506,53 @@ export class ActionManager {
         }
 
         // Reaction Drain
-        if (isParalyzed || stunnedVal > 0) {
-            reactionsSpent = (actor.system as any).resources?.reactions?.max || 1;
-            logEntries.push({ type: 'reaction', cost: 1, msgId: "System", label: `${isParalyzed ? 'Paralyzed' : 'Stunned'}: Reaction Lost`, isQuickenedEligible: false, category: "system", linkedMessages: [] });
+        if (isParalyzed || stunnedVal > maxActions) {
+            reactionsSpent = ActorHandler.getSlots(combatant, 'reaction').length;
+            logEntries.push({ type: 'reaction', cost: reactionsSpent, msgId: "System", label: `${isParalyzed ? 'Paralyzed' : 'Stunned'}: Reaction Lost`, isQuickenedEligible: false, category: "system", linkedMessages: [] });
         }
 
         return { logEntries, actionsSpent, reactionsSpent };
     }
 
-    static async refreshEconomyFromConditions(combatant: CombatantPF2e) {
+    /**
+     * Handles when conditions are dynamically added or removed mid-turn/off-turn.
+     * We only manage reaction drains here, because Action drains are resolved strictly at the start of a turn.
+     */
+    static async handleConditionChange(combatant: CombatantPF2e) {
         const c = combatant as any;
         const actor = c.actor as ActorPF2e | undefined;
         if (!actor) return;
 
-        const isQuickened = ActorHandler.getQuickenedState(combatant);
-        await c.update({
-            [`flags.${SCOPE}.isQuickenedSnapshot`]: isQuickened
-        });
+        const stunnedVal = ActorHandler.getConditionValue(actor, "stunned");
+        const isParalyzed = actor.hasCondition("paralyzed");
 
-        const { logEntries } = this.calculateStartOfTurnDrains(combatant, isQuickened);
-        const currentLog = [...this._getInternalLog(combatant)];
-        const mergedLog = [...logEntries, ...currentLog.filter(entry => entry.type !== "system")];
+        let log = [...this._getInternalLog(combatant)];
+        const reactionDrainIndex = log.findIndex(e => e.type === 'reaction' && e.category === 'system' && e.label.includes('Reaction Lost'));
 
-        await this._updateLogs(combatant, mergedLog, false);
+        const needsReactionDrain = isParalyzed || stunnedVal > 0;
+
+        let changed = false;
+
+        if (needsReactionDrain && reactionDrainIndex === -1) {
+            const reactionsSpent = ActorHandler.getSlots(combatant, 'reaction').length;
+            log.push({ 
+                type: 'reaction', 
+                cost: reactionsSpent, 
+                msgId: "System", 
+                label: `${isParalyzed ? 'Paralyzed' : 'Stunned'}: Reaction Lost`, 
+                isQuickenedEligible: false, 
+                category: "system", 
+                linkedMessages: [] 
+            });
+            changed = true;
+        } else if (!needsReactionDrain && reactionDrainIndex !== -1) {
+            log.splice(reactionDrainIndex, 1);
+            changed = true;
+        }
+
+        if (changed) {
+            await this._updateLogs(combatant, log, false);
+        }
     }
 
     /**
@@ -557,28 +581,13 @@ export class ActionManager {
         const actor = c.actor as ActorPF2e | null;
         if (!actor || !SettingsManager.get("whisperOverspend") || (game.user?.id !== game.users?.activeGM?.id)) return null;
 
-        const max = ActorHandler.getMaxActions(combatant); // Returns 3 or 4
-        const hasQuickened = ActorHandler.hasQuickenedSnapshot(combatant);
-
+        const { overspent } = ActorHandler.allocateSlots(combatant, newLogs, 'action');
+        
         const actionLog = newLogs.filter(e => e.type !== 'reaction');
         const rawTotalSpent = actionLog.reduce((sum, e) => sum + (e.cost || 0), 0);
 
-        // System actions (Slowed/Stunned) are inherently Quickened Eligible 
-        // because they are the first things to "drain" the pool.
-        const hasQuickenedEligible = actionLog.some(e => e.isQuickenedEligible && e.cost > 0);
-
-        let reason = "";
-
-        // --- Violation Check ---
-        if (rawTotalSpent > max) {
-            reason = `Spent ${rawTotalSpent} actions (Max: ${max})`;
-        }
-        else if (rawTotalSpent === max && hasQuickened && !hasQuickenedEligible) {
-            // They used the 4th slot, but nothing in their log is allowed to be there.
-            reason = `Bonus action used for an ineligible activity (e.g., must be Stride/Strike).`;
-        }
-
-        if (reason) {
+        if (overspent.length > 0) {
+            const reason = `Spent actions that exceeded available slots (${overspent.map(o => o.label).join(', ')}).`;
             const lastAlert = (c.getFlag(SCOPE, "lastOverspendAlert") as number) || 0;
             if (rawTotalSpent > lastAlert) {
                 await ChatManager.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperOverspend');
@@ -596,11 +605,11 @@ export class ActionManager {
         const actor = c.actor as ActorPF2e | null;
         if (!actor || !SettingsManager.get("whisperReactionOverspend") || game.user?.id !== game.users?.activeGM?.id) return;
 
-        const reactionLog = newLogs.filter(e => e.type === 'reaction');
-        const maxReactions = (actor.system as any).resources?.reactions?.max || 1;
+        const { overspent } = ActorHandler.allocateSlots(combatant, newLogs, 'reaction');
 
-        if (reactionLog.length > maxReactions) {
-            await ChatManager.triggerAlert(actor, "Economy Alert", `**${actor.name}**: Spent ${reactionLog.length} reactions with only ${maxReactions} available.`, 'whisperReactionOverspend');
+        if (overspent.length > 0) {
+            const reason = `Spent reactions that exceeded available slots (${overspent.map(o => o.label).join(', ')}).`;
+            await ChatManager.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperReactionOverspend');
         }
 
         return;

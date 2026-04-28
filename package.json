@@ -1,13 +1,13 @@
 {
   "name": "pf2e-auto-action-tracker",
-  "version": "0.11.0",
+  "version": "0.11.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "link": "cmd /c \"if exist \"%LOCALAPPDATA%\\FoundryVTT\\Data\\modules\\pf2e-auto-action-tracker\" rmdir \"%LOCALAPPDATA%\\FoundryVTT\\Data\\modules\\pf2e-auto-action-tracker\" && mklink /j \"%LOCALAPPDATA%\\FoundryVTT\\Data\\modules\\pf2e-auto-action-tracker\" \"C:\\Users\\Chris\\proj\\pf2e-auto-action-tracker\\dist\"\"",
     "preview": "vite preview",
-    "test": "node scripts/smoke-test.mjs && node --experimental-strip-types scripts/hud-tracker-test.mjs",
+    "test": "node --experimental-strip-types scripts/run-tests.mjs",
     "zip": "powershell -Command \"New-Item -ItemType Directory -Force -Path pf2e-auto-action-tracker; Copy-Item -Path dist\\* -Destination pf2e-auto-action-tracker -Recurse -Force; Copy-Item -Path module.json, README.md -Destination pf2e-auto-action-tracker -Force; Compress-Archive -Path pf2e-auto-action-tracker -DestinationPath pf2e-auto-action-tracker.zip -Force; Remove-Item -Recurse -Force pf2e-auto-action-tracker\""
   },
   "devDependencies": {
