@@ -7,7 +7,6 @@ import { SocketsManager } from "./SocketManager";
 import { logConsole } from "./logger"
 import * as Detectors from "./chatTypeDetectors";
 import type { IActionDetails } from "./chatTypeDetectors/IActionDetector";
-import { logInfo } from "./logger";
 
 // Use a Template Literal Type for clarity, or just string
 type CombatantId = string;
@@ -484,8 +483,6 @@ export class ChatManager {
                 // Handle Whisper/Secret logic here globally
                 const isPublic = message.whisper.length === 0 || message.whisper.includes(game.user.id);
                 const finalLabel = isPublic ? details.label : "Secret Action";
-
-                logInfo(`Detected ${finalLabel} details: `, details, ' and Detector.type: ', Detector.type);
 
                 return {
                     cost: details.cost ?? 0,
