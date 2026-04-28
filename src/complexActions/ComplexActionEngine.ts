@@ -1,10 +1,8 @@
-import { logInfo } from "../logger";
 import { SPECIAL_ACTIVITIES } from "./library";
 import type { ActiveActivityState, LeafState, OperatorNode, ActionNode, GroupNode } from "./types";
 import type { ActionLogEntry } from "../ActionManager";
 import { MovementManager } from "../MovementManager";
-import { ChatManager } from "../ChatManager";
-import { ActorPF2e, CombatantPF2e } from "module-helpers";
+import type { CombatantPF2e } from "module-helpers";
 
 export class ComplexActionEngine {
 
@@ -47,13 +45,11 @@ export class ComplexActionEngine {
             completedBy: undefined,
             leaves,
             orderedActivityChildActions: [],
-            historyAnchorIndex: tokenDoc?._movementHistory?.length || 0
+            historyAnchorIndex: ((tokenDoc as any)?._movementHistory?.length) ?? (tokenDoc?.id ? MovementManager.getCapturedHistory(tokenDoc.id)?.length : 0) ?? 0
         };
     }
 
     static evaluate(state: ActiveActivityState, incoming: { type: string, cost?: number, action: ActionLogEntry, slug: string }, combatant: CombatantPF2e) {
-        logInfo('incoming: ', incoming);
-        logInfo('Current State: ', state);
         const definition = SPECIAL_ACTIVITIES.find(a => a.slug === state.activitySlug);
         if (!definition) return { newState: state, claimed: false };
 
@@ -97,8 +93,11 @@ export class ComplexActionEngine {
                 leaf.childActions[actionIndex].cost = 0; // Maintain the "swallow"
                 (leaf.childActions[actionIndex] as any).coords = moveData.activityPath;
 
-                // Critical: Update satisfied based on overflow for editAction to handle
+                // Critical: Update satisfied and isClosed based on overflow
                 leaf.satisfied = !moveData.isOverflow && moveData.cost >= (leaf.minCost || 1);
+                if (moveData.isOverflow) {
+                    leaf.isClosed = true;
+                }
             }
         } else {
             // Standard edit for strikes/rolls
@@ -208,6 +207,19 @@ export class ComplexActionEngine {
     static complete(state: ActiveActivityState, msgId: string): ActiveActivityState {
         state.completedBy = msgId;
         return state;
+    }
+
+    /**
+     * Checks if the activity has an open move action that allows interruption
+     */
+    static getInterruptibleMoveId(state: ActiveActivityState): string | undefined {
+        const leaf = Object.values(state.leaves).find(l =>
+            l.type === 'move' &&
+            !l.isClosed &&
+            l.modifiers.includes('allowInterruption')
+        );
+        // Return the msgId of the last segment added to this leaf
+        return leaf?.childActions[leaf.childActions.length - 1]?.msgId;
     }
 
     static getName(state: ActiveActivityState): string {
@@ -387,8 +399,14 @@ export class ComplexActionEngine {
                 if (incoming.slug !== movementMode) return false;
 
                 const actor = (combatant as unknown as Combatant).actor;
-                const tokenDoc = (combatant as unknown as Combatant).token;
-                const fullHistory = (tokenDoc as any)?._movementHistory || [];
+                const c = combatant as any;
+                const tokenDoc = c.token || (c.tokenId ? game.scenes.active?.tokens.get(c.tokenId) : null);
+                const tokenId = tokenDoc?.id;
+
+                let fullHistory = (tokenDoc as any)?._movementHistory || [];
+                if (fullHistory.length === 0 && typeof tokenId === 'string') {
+                    fullHistory = MovementManager.getCapturedHistory(tokenId) || [];
+                }
 
                 // Slice history from the anchor to the current moment
                 const activityPath = fullHistory.slice(state.historyAnchorIndex);
@@ -398,8 +416,6 @@ export class ComplexActionEngine {
                     const { cost, label } = MovementManager.measurePath(actor, tokenDoc?.object, activityPath, movementMode);
 
                     const maxAllowed = leaf.maxCost ?? 1;
-
-                    logInfo('Cost and label: ', cost, ' ', label)
 
                     if (cost <= maxAllowed) {
                         // STANDARD CLAIM: Within budget
@@ -545,14 +561,9 @@ export class ComplexActionEngine {
         if (node.type === 'ACTION') {
             const id = this._generateId(...path);
             const leaf = state.leaves[id];
-            logInfo('in _recursiveClose - node: ', node)
-            logInfo('in _recursiveClose - state: ', state)
-            logInfo('in _recursiveClose - path: ', path)
             const canInterrupt = node.properties?.modifiers?.includes('allowInterruption') ?? false;
             // If it was satisfied (meaning they did the minimum), close it now.
             if (leaf && leaf.satisfied && !canInterrupt) {
-                logInfo('Closing leaf in _recursiveClose: ', leaf);
-                logInfo('Can Interrupt: ', canInterrupt, ' and node.properties: ', node.properties, ' and node.properties?.modifiers?.findIndex(m => m === "allowInterruption"): ', node.properties?.modifiers?.findIndex(m => m === 'allowInterruption'))
                 leaf.isClosed = true;
             }
         } else if (node.type === 'GROUP') {
@@ -584,8 +595,15 @@ export class ComplexActionEngine {
         combatant: CombatantPF2e
     ) {
         const actor = (combatant as any).actor;
-        const tokenDoc = (combatant as any).token;
-        const fullHistory = (tokenDoc as any)?._movementHistory || [];
+        const c = combatant as any;
+        const tokenDoc = c.token || (c.tokenId ? game.scenes.active?.tokens.get(c.tokenId) : null);
+        const tokenId = tokenDoc?.id;
+
+        let fullHistory = (tokenDoc as any)?._movementHistory || [];
+        if (fullHistory.length === 0 && typeof tokenId === 'string') {
+            fullHistory = MovementManager.getCapturedHistory(tokenId) || [];
+        }
+
         const activityPath = fullHistory.slice(state.historyAnchorIndex);
 
         if (activityPath.length === 0) return null;

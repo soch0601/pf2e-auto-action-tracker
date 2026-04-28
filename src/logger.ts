@@ -8,22 +8,37 @@ const isDebugEnabled = () => {
     return SettingsManager.get('debugMode') ?? false;
 };
 
+const modNameString = "PF2E Auto Action Tracker |"
+
 export function logConsole(...args: any[]) {
     if (!isDebugEnabled()) return;
-    console.log(`PF2e Action Tracker |`, ...args);
+    console.log(modNameString, ...args);
 }
 
 export function logInfo(...args: any[]) {
     if (!isDebugEnabled()) return;
-    console.info(`PF2e Action Tracker |`, ...args);
+    console.info(modNameString, ...args);
 }
 
 export function logWarn(...args: any[]) {
     if (!isDebugEnabled()) return;
-    console.warn(`PF2e Action Tracker |`, ...args);
+    console.warn(modNameString, ...args);
 }
 
 export function logError(...args: any[]) {
     if (!isDebugEnabled()) return;
-    console.error(`PF2e Action Tracker |`, ...args);
+    console.error(modNameString, ...args);
+}
+
+export function notifyWarn(message: string) {
+    const fullMsg = `${modNameString} ${message}`;
+    if ((ui as any).notifications) {
+        (ui as any).notifications.warn(fullMsg);
+    } else {
+        console.warn(modNameString, "UI Notifications not ready. Logged:", fullMsg);
+    }
+}
+
+export function notifyError(message: string) {
+    (ui as any).notifications?.error(`${modNameString} ${message}`);
 }

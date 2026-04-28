@@ -9,6 +9,7 @@ import { SocketsManager } from "./SocketManager";
 import { ChatMessagePF2e, CombatantPF2e, EncounterPF2e } from "module-helpers"
 import { logConsole, logError, logInfo, logWarn } from "./logger";
 import { SCOPE, recentIntent } from "./globals";
+import { runAllConflictChecks } from "./otherModConflicts";
 import { findPf2eHudTracker } from "./trackerAdapters";
 
 // string is the combatant ID.
@@ -30,6 +31,7 @@ Hooks.once("setup", () => {
 
 // Once it is ready, now we can wrap functions
 Hooks.once("ready", () => {
+    runAllConflictChecks();
     WrapperManager.wrapFunctions();
 });
 
@@ -229,7 +231,12 @@ Hooks.on("updateCombat", async (combat: EncounterPF2e, updateData: any, options:
     }
 });
 
-// Movement Hook
+// Movement Hooks
+Hooks.on("preUpdateToken", (tokenDoc: any, update: any, options: any) => {
+    if (game.user?.id !== game.users?.activeGM?.id) return;
+    MovementManager.handlePreUpdateToken(tokenDoc, update, options);
+});
+
 Hooks.on("updateToken", (tokenDoc: any, update: any) => {
     if (game.user?.id !== game.users?.activeGM?.id) return;
     if (!("x" in update || "y" in update || update.movementAction)) return;
@@ -318,4 +325,9 @@ export async function enqueueAction(combatantId: string, actionFn: () => Promise
 
     _queues.set(combatantId, newPromise);
     return newPromise;
+}
+
+export async function waitForQueue(combatantId: string) {
+    const existingPromise = _queues.get(combatantId);
+    if (existingPromise) await existingPromise;
 }

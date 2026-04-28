@@ -23,6 +23,7 @@ export interface ActionLogEntry {
     ComplexActionState?: ActiveActivityState;
     category: string;
     linkedMessages: linkedRolls[];
+    distance?: number;
 }
 
 export interface linkedRolls {
@@ -88,6 +89,10 @@ export class ActionManager {
         const actor: ActorPF2e = c.actor;
         if (!actor) return;
 
+        // Reset any captured movement history for this turn
+        const tokenId = c.tokenId || c.token?.id;
+        if (tokenId) MovementManager.resetCapturedHistory(tokenId);
+
         // 1. Logic call to ActorHandler, but the ActionManager does the filing
         const isQuickened = ActorHandler.getQuickenedState(combatant);
 
@@ -137,6 +142,10 @@ export class ActionManager {
         const log = this.getActions(combatant);
         await this.checkUnderSpend(combatant, log);
 
+        // Reset movement history for the next turn
+        const tokenId = (combatant as any).tokenId || (combatant as any).token?.id;
+        if (tokenId) MovementManager.resetCapturedHistory(tokenId);
+
         // Stunned logic is removed from here because it's now handled at Start of Turn per RAW.
     }
 
@@ -145,6 +154,8 @@ export class ActionManager {
      */
     static async addAction(combatant: CombatantPF2e, action: ActionLogEntry) {
         const c = combatant as any;
+        const tokenId = c.tokenId || c.token?.id;
+        const isMove = MovementManager.isMoveAction(action.msgId);
 
         if (action.type === 'system') {
             const currentLog = [...this._getInternalLog(combatant)];
@@ -170,6 +181,8 @@ export class ActionManager {
         const openEntry = currentLog.find(e => e.ComplexActionState && !e.ComplexActionState.completedBy);
 
         if (openEntry && openEntry.ComplexActionState) {
+            const wasCompleteBeforeClaim = ComplexActionEngine.isComplete(openEntry.ComplexActionState);
+
             const result = ComplexActionEngine.evaluate(openEntry.ComplexActionState!, {
                 slug: incomingSlug,
                 action,
@@ -183,6 +196,11 @@ export class ActionManager {
                 // Use toString() for a clean, dynamic label
                 openEntry.label = ComplexActionEngine.toString(result.newState);
 
+                // If this action completed the sequence and it wasn't a move, reset movement history
+                if (ComplexActionEngine.isComplete(result.newState) && !wasCompleteBeforeClaim && !isMove) {
+                    if (tokenId) MovementManager.resetCapturedHistory(tokenId);
+                }
+
                 const overrideCost = ComplexActionEngine.getOverrideCost(result.newState);
 
                 // Only update the entry cost if an override was explicitly found
@@ -195,10 +213,14 @@ export class ActionManager {
             } else if (ComplexActionEngine.canComplete(openEntry.ComplexActionState)) {
                 openEntry.ComplexActionState = ComplexActionEngine.complete(openEntry.ComplexActionState, ComplexActionEngine.getAllChildActions(openEntry.ComplexActionState).reverse()[0].msgId);
                 openEntry.label = ComplexActionEngine.toString(openEntry.ComplexActionState);
+                // Sequence completed/ejected, reset history
+                if (tokenId) MovementManager.resetCapturedHistory(tokenId);
             } else if (action.cost > 0) {
                 // Sequence Broken
                 openEntry.ComplexActionState = ComplexActionEngine.complete(openEntry.ComplexActionState, action.msgId);
                 await ChatManager.triggerAlert(c.actor, "Sequence Broken", `Cancelled ${openEntry.label}.`, 'whisperComplexAction');
+                // Sequence broken, reset history
+                if (tokenId) MovementManager.resetCapturedHistory(tokenId);
             }
         }
 
@@ -207,6 +229,9 @@ export class ActionManager {
         if (newSequence) {
             action.ComplexActionState = newSequence;
             action.label = ComplexActionEngine.toString(newSequence);
+        } else if (!isMove) {
+            // Not a move and not starting a sequence, reset history
+            if (tokenId) MovementManager.resetCapturedHistory(tokenId);
         }
 
         currentLog.push(action);
@@ -322,6 +347,10 @@ export class ActionManager {
         const stack = new Error().stack;
         const currentLog = [...this._getInternalLog(combatant)];
 
+        // Always reset movement history when an action is removed (Undo)
+        const tokenId = (combatant as any).tokenId || (combatant as any).token?.id;
+        if (tokenId) MovementManager.resetCapturedHistory(tokenId);
+
         // 1. UNLOCK: If any activity was locked/broken by this specific ID, clear it
         currentLog.forEach(e => {
             if (e.ComplexActionState?.completedBy === msgId) {
@@ -391,7 +420,7 @@ export class ActionManager {
       * Public entry point to stop tracking a sustained item (e.g., when it lapses)
       */
     static async stopSustaining(combatant: CombatantPF2e, itemId: string) {
-        const currentLogs = (combatant as any).getFlag(SCOPE, "log") || [];
+        const currentLogs = this._getInternalLog(combatant);
         // Reuse our unified private updater
         await this._updateLogs(combatant, currentLogs, true, itemId);
     }
@@ -535,14 +564,14 @@ export class ActionManager {
 
         if (needsReactionDrain && reactionDrainIndex === -1) {
             const reactionsSpent = ActorHandler.getSlots(combatant, 'reaction').length;
-            log.push({ 
-                type: 'reaction', 
-                cost: reactionsSpent, 
-                msgId: "System", 
-                label: `${isParalyzed ? 'Paralyzed' : 'Stunned'}: Reaction Lost`, 
-                isQuickenedEligible: false, 
-                category: "system", 
-                linkedMessages: [] 
+            log.push({
+                type: 'reaction',
+                cost: reactionsSpent,
+                msgId: "System",
+                label: `${isParalyzed ? 'Paralyzed' : 'Stunned'}: Reaction Lost`,
+                isQuickenedEligible: false,
+                category: "system",
+                linkedMessages: []
             });
             changed = true;
         } else if (!needsReactionDrain && reactionDrainIndex !== -1) {
@@ -582,7 +611,7 @@ export class ActionManager {
         if (!actor || !SettingsManager.get("whisperOverspend") || (game.user?.id !== game.users?.activeGM?.id)) return null;
 
         const { overspent } = ActorHandler.allocateSlots(combatant, newLogs, 'action');
-        
+
         const actionLog = newLogs.filter(e => e.type !== 'reaction');
         const rawTotalSpent = actionLog.reduce((sum, e) => sum + (e.cost || 0), 0);
 

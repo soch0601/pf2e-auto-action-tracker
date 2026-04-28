@@ -1,9 +1,11 @@
 import { SCOPE } from "./globals.ts";
 import { ActorPF2e, CombatantPF2e } from "module-helpers";
-import { ActionManager } from "./ActionManager.ts";
+import { ActionManager, ActionLogEntry } from "./ActionManager.ts";
 import { ActorHandler } from "./ActorHandler.ts";
 import { ChatManager } from "./ChatManager.ts";
-import { logError, logInfo } from "./logger.ts"
+import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
+import { logError, logInfo, logWarn } from "./logger.ts"
+import { noHistoryConflict } from "./globals.ts";
 
 const MOVEMENT_FLAG = "movementHistorySnapshot";
 
@@ -13,11 +15,47 @@ export class MovementManager {
     private static _historyLengths = new Map<string, number>();
     // Tracks the last processed coordinates to distinguish between extending a drag and starting a new one
     private static _lastCoords = new Map<string, any[]>();
+    // Captured history from preUpdate to beat modules that delete it in update
+    private static _capturedHistory = new Map<string, any[]>();
     /**
-     * Checks if a specific msgId belongs to a movement action
+     * Resets the manual history capture for a token.
      */
+    static resetCapturedHistory(tokenId?: string) {
+        if (tokenId) {
+            MovementManager._capturedHistory.delete(tokenId);
+            MovementManager._lastCoords.delete(tokenId);
+        } else {
+            MovementManager._capturedHistory.clear();
+            MovementManager._lastCoords.clear();
+        }
+    }
+
+    /**
+     * Retrieves the manual history capture for a token.
+     */
+    static getCapturedHistory(tokenId: string) {
+        return MovementManager._capturedHistory.get(tokenId);
+    }
+
     static isMoveAction(msgId: string | undefined): boolean {
         return !!msgId?.startsWith('move-');
+    }
+
+
+    static async handlePreUpdateToken(tokenDoc: any, update: any, options: any) {
+        if (!noHistoryConflict) return;
+
+        if ("x" in update || "y" in update) {
+            const tokenId = tokenDoc.id;
+            let captured = MovementManager._capturedHistory.get(tokenId) || [];
+
+            // If this is the VERY first capture for this token, add the start point
+            if (captured.length === 0) {
+                captured.push({ x: tokenDoc.x, y: tokenDoc.y, elevation: tokenDoc.elevation ?? 0 });
+            }
+
+            MovementManager._capturedHistory.set(tokenId, captured);
+        }
     }
 
     static async handleTokenUpdate(tokenDoc: any, update: any) {
@@ -26,7 +64,25 @@ export class MovementManager {
 
         // Use tokenDoc.id as the primary key for physical movement history
         const tokenId = tokenDoc.id;
-        const history = tokenDoc._movementHistory || [];
+
+        let history: any[] = [];
+        const captured = MovementManager._capturedHistory.get(tokenId);
+
+        if (noHistoryConflict) {
+            const endX = update.x !== undefined ? update.x : tokenDoc.x;
+            const endY = update.y !== undefined ? update.y : tokenDoc.y;
+            const endElev = update.elevation !== undefined ? update.elevation : (tokenDoc.elevation ?? 0);
+
+            if (captured) {
+                // Manually build the path
+                captured.push({ x: endX, y: endY, elevation: endElev });
+                history = [...captured];
+            } else {
+                history = [];
+            }
+        } else {
+            history = tokenDoc._movementHistory || [];
+        }
 
         // DEBUG: Track the history state to verify if it is cumulative or reset between drags
         logInfo(`Movement Debug | Token: ${tokenDoc.name} | History Points: ${history.length} | Drag Mode: ${tokenDoc.movementAction || 'none'}`);
@@ -96,6 +152,7 @@ export class MovementManager {
     private static async _processMovement(combatant: CombatantPF2e, tokenDoc: any, coordList: any[], recursiveCall: boolean): Promise<void> {
         const c = combatant as any;
         if (!(game as any).combat?.active) return;
+
         // 80/20 rule - 80% of actions not on a turn are either forced or free actions from trigger.  If there is movement by the
         // combatant during someone else's turn, just ignore it... and let a manual addition handle if desired
         if ((game as any).combat.combatant?.id !== c.id) return;
@@ -115,7 +172,6 @@ export class MovementManager {
 
         // Jitter/GM Drag Checks
         if (distance === 0 || distance > 200) return;
-
         const movementMode = tokenDoc.movementAction === "walk" ? "stride" : tokenDoc.movementAction;
         const activeSpeed = ActorHandler.getActiveSpeed(actor, movementMode);
         const isDifficult = MovementManager.checkDifficultTerrain(tokenDoc.object, coordList);
@@ -123,7 +179,8 @@ export class MovementManager {
         const allActions = ActionManager.getFlattenedActions(combatant);
         const moveActions = allActions.filter(a => MovementManager.isMoveAction(a.msgId));
 
-        const getDist = (act: any) => {
+        const getDist = (act: ActionLogEntry) => {
+            if (act.distance !== undefined) return act.distance;
             if (act.label === 'Step') return 5;
             const match = act.label.match(/\d+/);
             return match ? parseInt(match[0]) : 0;
@@ -131,10 +188,19 @@ export class MovementManager {
         const totalRecorded = moveActions.reduce((acc, a) => acc + getDist(a), 0);
 
         // --- 2. EVALUATE CHANGES ---
-        if (distance === totalRecorded) return;
+        if (!noHistoryConflict && distance === totalRecorded) return;
 
         const lastResult = ActionManager.getLastAction(combatant);
-        const activeMsgId = lastResult?.isSubAction ? lastResult.subAction?.msgId : lastResult?.entry.msgId;
+        let activeMsgId = lastResult?.isSubAction ? lastResult.subAction?.msgId : lastResult?.entry.msgId;
+
+        // If the last action wasn't a move, check if we're in an interruptible complex move
+        if (activeMsgId && !MovementManager.isMoveAction(activeMsgId)) {
+            const state = lastResult?.entry.ComplexActionState;
+            if (state) {
+                const interruptedId = ComplexActionEngine.getInterruptibleMoveId(state);
+                if (interruptedId) activeMsgId = interruptedId;
+            }
+        }
 
         // Detect if this movement is a continuation of the previous drag session
         const lastCoords = MovementManager._lastCoords.get(tokenDoc.id) || [];
@@ -147,15 +213,11 @@ export class MovementManager {
             coordList.length < lastCoords.length &&
             coordList.every((p, i) => p.x === lastCoords[i].x && p.y === lastCoords[i].y);
 
-        logInfo(`Logic Check | Dist: ${distance} | TotalRecorded: ${totalRecorded} | Continuation: ${isContinuation} | Undo: ${isUndo}`);
-
         // B. ACTUAL UNDO (Ctrl+Z detected)
         if (isUndo) {
             if (lastResult && activeMsgId) {
                 await ActionManager.removeAction(combatant, activeMsgId);
-                if (!MovementManager.isMoveAction(activeMsgId)) {
-                    ChatManager.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${lastResult.actionLabel ?? lastResult.entry.label}`, 'undoAlert');
-                }
+                ChatManager.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${lastResult.actionLabel ?? lastResult.entry.label}`, 'undoAlert');
                 MovementManager.storeMovement(tokenDoc, coordList);
                 await MovementManager._processMovement(combatant, tokenDoc, coordList, true);
             }
@@ -164,14 +226,15 @@ export class MovementManager {
 
         // C. TOKEN MOVEMENT (Adjusting current ruler or adding new segment)
         if (distance !== totalRecorded) {
+            const isActiveMove = MovementManager.isMoveAction(activeMsgId);
+
             // If it's a continuation of the same drag, we update the last move action with the new total distance
-            if (isContinuation && lastResult && activeMsgId && MovementManager.isMoveAction(activeMsgId)) {
+            if (isContinuation && lastResult && activeMsgId && isActiveMove) {
                 const newCost = Math.ceil(distance / activeSpeed);
                 const label = MovementManager.getMovementLabel(distance, newCost, movementMode, isDifficult);
-                await ActionManager.editAction(combatant, activeMsgId, { label, cost: newCost, slug: movementMode });
+                await ActionManager.editAction(combatant, activeMsgId, { label, cost: newCost, slug: movementMode, distance });
             } else {
                 // If it's a new drag starting from a fresh history, we treat its entire distance as 'new'.
-                // If it's a continuation of a drag that somehow doesn't have a Move action yet, we calculate the delta.
                 const newDistance = isContinuation ? distance - totalRecorded : distance;
                 if (newDistance > 0) {
                     const moveMsgId = `move-${tokenDoc.id}-${Date.now()}`;
@@ -186,7 +249,8 @@ export class MovementManager {
                         category: "move",
                         slug: movementMode,
                         linkedMessages: [],
-                        isQuickenedEligible: true
+                        isQuickenedEligible: true,
+                        distance: newDistance
                     });
                 }
             }
