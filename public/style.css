@@ -63,9 +63,14 @@
     text-shadow: 0 0 2px rgba(0, 0, 0, 0.55);
 }
 
-#pf2e-hud-tracker .pf2e-auto-action-tracker-container .action-overflow-count,
-#pf2e-hud-tracker .pf2e-auto-action-tracker-container .overspend-exclamation {
+#pf2e-hud-tracker .pf2e-auto-action-tracker-container .action-overflow-count {
     display: none;
+}
+#pf2e-hud-tracker .pf2e-auto-action-tracker-container .overspend-exclamation {
+    display: inline;
+    font-size: 10px;
+    margin-left: -2px;
+    margin-right: 2px;
 }
 
 #pf2e-hud-tracker .pf2e-auto-action-tracker-container.compact .action-icon {

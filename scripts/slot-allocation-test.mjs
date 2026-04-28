@@ -55,8 +55,8 @@ assert.equal(result1.slots[2].spentBy, log1[1]); // Base used by stride
 assert.equal(result1.slots[3].spentBy, undefined);
 
 // Test 3: Complex overlap
-// Add a hypothetical feat to AddReactionsLibrary for this test or just mock it.
-// Wait, we can't easily mock AddReactionsLibrary because it's imported in ActorHandler.
+// Add a hypothetical feat to AddActionsLibrary for this test or just mock it.
+// Wait, we can't easily mock AddActionsLibrary because it's imported in ActorHandler.
 // So we use quickened.
 const actor2 = new MockActor([], []);
 // Quickened allows: "strike", "stride", "step", "interact", "sustain-a-spell"

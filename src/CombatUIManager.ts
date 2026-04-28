@@ -144,14 +144,33 @@ export class CombatUIManager {
         let overflowCount = 0;
         const MAX_PIPS = 6;
 
+        let hasRenderedOverspent = false;
         /**
          * Helper to render individual pips with correct PF2e Action Symbols
          */
         const renderPip = (pip: any) => {
 
-            if (pipsRendered >= MAX_PIPS) {
-                if (pip.isOver) overflowCount++;
+            const isOver = !!pip.isOver;
+
+            // Strictly allow only ONE overspent pip to be rendered
+            if (isOver && hasRenderedOverspent) {
+                overflowCount++;
                 return;
+            }
+
+            // Normal MAX_PIPS capping for unspent/spent actions
+            if (pipsRendered >= MAX_PIPS) {
+                // If this is the FIRST overspent pip, we allow it even if over MAX_PIPS
+                if (isOver && !hasRenderedOverspent) {
+                    // Proceed to render
+                } else {
+                    if (isOver) overflowCount++;
+                    return;
+                }
+            }
+
+            if (isOver) {
+                hasRenderedOverspent = true;
             }
 
             if (!pip.entry) {
@@ -175,7 +194,6 @@ export class CombatUIManager {
 
             const entry = pip.entry;
             const isGold = pip.isGold;
-            const isOver = pip.isOver;
             const subIdx = pip.subIdx;
 
             const message = game.messages.get(entry.msgId || "");
@@ -253,7 +271,7 @@ export class CombatUIManager {
             actionLine.appendChild(span);
             pipsRendered++;
 
-            if (isOver && subIdx === pip.totalCost - 1) {
+            if (isOver) {
                 const warn = document.createElement("span");
                 warn.className = "overspend-exclamation";
                 warn.textContent = "!";
@@ -294,6 +312,7 @@ export class CombatUIManager {
             actionLine.appendChild(mapBadge);
         }
 
+        const isOverspent = log.some(e => ActorHandler.allocateSlots(combatant, [e], 'action').overspent.length > 0);
         if (overflowCount > 0 && !isCompact) {
             const overflow = document.createElement("span");
             overflow.className = "action-overflow-count";

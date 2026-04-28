@@ -99,21 +99,26 @@ export class ActorHandler {
         const speed_floor = 5;
         if (!actor.isOfType("creature")) return speed_floor;
 
-        const attributes = actor.system.attributes as any;
-        const speed = attributes.speed;
+        const system = actor.system as any;
+        const movement = system.movement;
+        
+        // Handle newer system versions where it is system.movement
+        if (movement && movement.speeds) {
+            const typeKey = (movementMode === "stride" || movementMode === "land") ? "land" : movementMode;
+            const targetSpeed = movement.speeds[typeKey];
+            return targetSpeed?.value || speed_floor;
+        }
 
-        if (!speed) return 0;
+        // Fallback for older versions
+        const attributes = system.attributes as any;
+        const speed = attributes?.speed;
+        if (!speed) return speed_floor;
 
-        // Handle the standard land speed
         if (movementMode === "stride" || movementMode === "land") {
             return speed.total ?? speed_floor;
         }
 
-        // Handle all other PF2e speeds (fly, swim, burrow, climb)
         const specialSpeed = speed.otherSpeeds?.find((s: any) => s.type === movementMode);
-
-        // Fallback logic: if a mode is selected but no specific speed exists, 
-        // default to our speed_floor.
         return specialSpeed?.total ?? speed_floor;
     }
 

@@ -3,7 +3,7 @@ import { ActorPF2e, CombatantPF2e } from "module-helpers";
 import { ActionManager } from "./ActionManager.ts";
 import { ActorHandler } from "./ActorHandler.ts";
 import { ChatManager } from "./ChatManager.ts";
-import { logError } from "./logger.ts"
+import { logError, logInfo } from "./logger.ts"
 
 const MOVEMENT_FLAG = "movementHistorySnapshot";
 
@@ -11,6 +11,8 @@ export class MovementManager {
 
     // Synchronous local storage for history length to prevent race conditions
     private static _historyLengths = new Map<string, number>();
+    // Tracks the last processed coordinates to distinguish between extending a drag and starting a new one
+    private static _lastCoords = new Map<string, any[]>();
     /**
      * Checks if a specific msgId belongs to a movement action
      */
@@ -25,6 +27,13 @@ export class MovementManager {
         // Use tokenDoc.id as the primary key for physical movement history
         const tokenId = tokenDoc.id;
         const history = tokenDoc._movementHistory || [];
+
+        // DEBUG: Track the history state to verify if it is cumulative or reset between drags
+        logInfo(`Movement Debug | Token: ${tokenDoc.name} | History Points: ${history.length} | Drag Mode: ${tokenDoc.movementAction || 'none'}`);
+        if (history.length > 0) {
+            logInfo(`Movement Debug | Start: (${history[0].x}, ${history[0].y}) | End: (${history[history.length - 1].x}, ${history[history.length - 1].y})`);
+        }
+
         const coordList = history.map((p: any) => ({ x: p.x, y: p.y, elevation: p.elevation ?? 0 }));
         try {
             await MovementManager._processMovement(combatant, tokenDoc, coordList, false);
@@ -127,8 +136,21 @@ export class MovementManager {
         const lastResult = ActionManager.getLastAction(combatant);
         const activeMsgId = lastResult?.isSubAction ? lastResult.subAction?.msgId : lastResult?.entry.msgId;
 
+        // Detect if this movement is a continuation of the previous drag session
+        const lastCoords = MovementManager._lastCoords.get(tokenDoc.id) || [];
+        const isContinuation = coordList.length > 0 && lastCoords.length > 0 &&
+            coordList.length >= lastCoords.length &&
+            lastCoords.every((p, i) => p.x === coordList[i].x && p.y === coordList[i].y);
+
+        // Detect if this is an "Undo" (user dragged back along the same path)
+        const isUndo = coordList.length > 0 && lastCoords.length > 0 &&
+            coordList.length < lastCoords.length &&
+            coordList.every((p, i) => p.x === lastCoords[i].x && p.y === lastCoords[i].y);
+
+        logInfo(`Logic Check | Dist: ${distance} | TotalRecorded: ${totalRecorded} | Continuation: ${isContinuation} | Undo: ${isUndo}`);
+
         // B. ACTUAL UNDO (Ctrl+Z detected)
-        if (MovementManager.isUndoMovement(tokenDoc, coordList)) {
+        if (isUndo) {
             if (lastResult && activeMsgId) {
                 await ActionManager.removeAction(combatant, activeMsgId);
                 if (!MovementManager.isMoveAction(activeMsgId)) {
@@ -142,12 +164,15 @@ export class MovementManager {
 
         // C. TOKEN MOVEMENT (Adjusting current ruler or adding new segment)
         if (distance !== totalRecorded) {
-            if (lastResult && activeMsgId && MovementManager.isMoveAction(activeMsgId)) {
+            // If it's a continuation of the same drag, we update the last move action with the new total distance
+            if (isContinuation && lastResult && activeMsgId && MovementManager.isMoveAction(activeMsgId)) {
                 const newCost = Math.ceil(distance / activeSpeed);
                 const label = MovementManager.getMovementLabel(distance, newCost, movementMode, isDifficult);
                 await ActionManager.editAction(combatant, activeMsgId, { label, cost: newCost, slug: movementMode });
             } else {
-                const newDistance = distance - totalRecorded;
+                // If it's a new drag starting from a fresh history, we treat its entire distance as 'new'.
+                // If it's a continuation of a drag that somehow doesn't have a Move action yet, we calculate the delta.
+                const newDistance = isContinuation ? distance - totalRecorded : distance;
                 if (newDistance > 0) {
                     const moveMsgId = `move-${tokenDoc.id}-${Date.now()}`;
                     const cost = Math.ceil(newDistance / activeSpeed);
@@ -218,10 +243,6 @@ export class MovementManager {
 
     private static storeMovement(tokenDoc: any, coordList: any[]) {
         MovementManager._historyLengths.set(tokenDoc.id, coordList.length);
-    }
-
-    private static isUndoMovement(tokenDoc: any, coordList: any[]): boolean {
-        const lastLength = MovementManager._historyLengths.get(tokenDoc.id) || 0;
-        return coordList.length < lastLength;
+        MovementManager._lastCoords.set(tokenDoc.id, [...coordList]);
     }
 }
