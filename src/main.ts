@@ -15,6 +15,7 @@ import { findPf2eHudTracker } from "./trackerAdapters";
 // string is the combatant ID.
 const _queues = new Map<string, Promise<void>>();
 let pf2eHudObserver: MutationObserver | undefined;
+let isReady = false;
 
 function syncPf2eHudTracker(combat: any): boolean {
     if (!SettingsManager.get("showPf2eHudTracker")) return true;
@@ -52,18 +53,19 @@ Hooks.once("init", () => {
     ChatManager.registerOverrideListeners();
 });
 
-// Any setup related stuff
-Hooks.once("setup", () => {
+Hooks.once("socketlib.ready", () => {
     SocketsManager.initSockets();
 })
 
 // Once it is ready, now we can wrap functions
 Hooks.once("ready", () => {
+    isReady = true;
     runAllConflictChecks();
     WrapperManager.wrapFunctions();
 });
 
 Hooks.on("closeDamageModifierDialog", async (app: any) => {
+    if (!isReady) return;
     // 1. Cleanup the actor-level temporary ID regardless of how it closed
     if (app.actor) {
         delete (app.actor as any)._lastDamageOriginId;
@@ -90,6 +92,7 @@ Hooks.on("closeDamageModifierDialog", async (app: any) => {
 
 // Create Chat Hook
 Hooks.on("createChatMessage", async (message: ChatMessagePF2e) => {
+    if (!isReady) return;
     if (game.user?.id !== game.users?.activeGM?.id) return;
 
     const combatant = ChatManager.getCombatantFromMsg(message);
@@ -102,6 +105,7 @@ Hooks.on("createChatMessage", async (message: ChatMessagePF2e) => {
 
 // Delete Chat hook
 Hooks.on("deleteChatMessage", async (message: ChatMessagePF2e) => {
+    if (!isReady) return;
     if (!(game as any).combat?.active || !message.id) return;
 
     const speaker = message.speaker;
@@ -114,6 +118,8 @@ Hooks.on("deleteChatMessage", async (message: ChatMessagePF2e) => {
 
     const context = message.flags?.pf2e;
     if (context && "isReroll" in context && context.isReroll) return;
+
+    if (game.user?.id !== game.users?.activeGM?.id) return;
 
     // Enqueue deleting the action
     enqueueAction(c.id, async () => await ChatManager.handleDeletedMessage(combatant, message.id!));
@@ -164,6 +170,7 @@ Hooks.on("renderChatMessage", (message: ChatMessagePF2e, html: any) => {
 
 // UI Hooks for rendering combat tracker
 Hooks.on("renderCombatTracker", (app: any, html: any, data: any) => {
+    if (!isReady) return;
     const htmlElement = html instanceof HTMLElement ? html : html[0] || (html.element instanceof HTMLElement ? html.element : null);
     if (!htmlElement || !data.combat) return;
 
@@ -184,6 +191,7 @@ Hooks.on("renderCombatTracker", (app: any, html: any, data: any) => {
 });
 
 Hooks.on("renderDamageModifierDialog", async (app: any, html: JQuery) => {
+    if (!isReady) return;
     // 1. Find the combatant associated with this dialog
     const tokenId = app.token?.id;
     const actorId = app.actor?.id;
@@ -201,6 +209,7 @@ Hooks.on("renderDamageModifierDialog", async (app: any, html: JQuery) => {
 
 // Chat card changed (like Heal selecting a cost or visibility)
 Hooks.on("updateChatMessage", (message: ChatMessagePF2e, updateData: any) => {
+    if (!isReady) return;
     const combat = game.combat;
     if (!combat?.active) return;
     // Find the combatant associated with this message
@@ -212,7 +221,9 @@ Hooks.on("updateChatMessage", (message: ChatMessagePF2e, updateData: any) => {
     if (!c?.id) return;
 
     if (updateData.flags?.pf2e || updateData.whisper) {
-        enqueueAction(c.id, async () => await ChatManager.handleChatPayload(message));
+        if (game.user?.id === game.users?.activeGM?.id) {
+            enqueueAction(c.id, async () => await ChatManager.handleChatPayload(message));
+        }
     }
 
     // Check for any visibility-related changes
@@ -233,6 +244,7 @@ Hooks.on("updateChatMessage", (message: ChatMessagePF2e, updateData: any) => {
 
 // Update Combat Hooks
 Hooks.on("updateCombat", async (combat: EncounterPF2e, updateData: any, options: any, userId: string) => {
+    if (!isReady) return;
     const g = game as unknown as Game;
 
     if (game.user?.id !== game.users?.activeGM?.id) return;
@@ -257,11 +269,13 @@ Hooks.on("updateCombat", async (combat: EncounterPF2e, updateData: any, options:
 
 // Movement Hooks
 Hooks.on("preUpdateToken", (tokenDoc: any, update: any, options: any, userId: string) => {
+    if (!isReady) return;
     if (game.user?.id !== userId) return;
     MovementManager.handlePreUpdateToken(tokenDoc, update, options);
 });
 
 Hooks.on("updateToken", (tokenDoc: any, update: any, options: any, userId: string) => {
+    if (!isReady) return;
     if (game.user?.id !== userId) return;
     if (!("x" in update || "y" in update || update.movementAction)) return;
 

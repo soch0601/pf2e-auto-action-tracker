@@ -1,10 +1,8 @@
-import { ActionManager } from "./ActionManager.ts";
-import type { ActionLogEntry } from "./ActionManager.ts";
+import type { ActionLogEntry, linkedRolls } from "./ActionManager.ts";
 import { SCOPE } from "./globals.ts";
 import type { ActorPF2e, ChatMessagePF2e, CombatantPF2e } from "module-helpers";
 import { SettingsManager } from "./SettingsManager.ts";
 import { ActorHandler } from "./ActorHandler.ts";
-import { SocketsManager } from "./SocketManager.ts";
 import { logConsole } from "./logger.ts"
 import * as Detectors from "./chatTypeDetectors/index.ts";
 import type { IActionDetails } from "./chatTypeDetectors/IActionDetector.ts";
@@ -134,6 +132,7 @@ export class ChatManager {
 
         const originId = await this.maybeGetOriginMsgId(message);
         if (originId) {
+            const { ActionManager } = await import("./ActionManager.ts");
             ActionManager.linkDamageToAttack(combatant, originId, message.id);
             return;
         }
@@ -147,6 +146,7 @@ export class ChatManager {
                 return;
             }
 
+            const { ActionManager } = await import("./ActionManager.ts");
             const action = ActionManager.getActionById(combatant, oldMsgId);
             if (!action) {
                 logConsole(`Reroll detected for ${oldMsgId}, but no matching action was found in history.`);
@@ -160,7 +160,7 @@ export class ChatManager {
 
         // Delegate detection and metadata extraction to Parser
         if (Detectors.SustainDetector.isSustainMessage(message)) {
-            this.processSustainMessage(message, combatant);
+            await this.processSustainMessage(message, combatant);
         }
 
         const data = this.runMessageDetectors(message);
@@ -169,6 +169,7 @@ export class ChatManager {
         const isQuickenedEligible = ActorHandler.isActionQuickenedEligible(combatant, data.slug);
 
         // Check if we are updating an existing message or logging a new one
+        const { ActionManager } = await import("./ActionManager.ts");
         const log = ActionManager.getActionById(combatant, message.id);
 
         const mapMetadata: Pick<ActionLogEntry, "isMapRelevant" | "mapProfile"> =
@@ -235,13 +236,13 @@ export class ChatManager {
             event.preventDefault();
             const button = event.currentTarget;
             const { action, actorId, itemId, itemName, combatantId } = button.dataset;
-
+ 
             const actor = (game.actors as any).get(actorId ?? "");
             if (!actor || (!actor.isOwner && !game.user.isGM)) return;
-
+ 
             // Resolve the combatant directly by ID (Identity Crisis Solved)
             const combatant = game.combat?.combatants.get(combatantId || "");
-
+ 
             const choice = action === "sustain-yes" ? "yes" : "no";
             const payload = {
                 messageId: message.id,
@@ -251,7 +252,7 @@ export class ChatManager {
                 itemName: itemName || "",
                 choice: choice
             };
-
+ 
             if (game.user.isGM) {
                 if (choice === "yes") {
                     await this.processSustainYes(actor, itemId || "", itemName || "", combatantId);
@@ -261,6 +262,7 @@ export class ChatManager {
                 }
                 await (message as any).setFlag(SCOPE, "sustainChoice", { choice, itemName });
             } else {
+                const { SocketsManager } = await import("./SocketManager.ts");
                 SocketsManager.emitSustainChoice(payload);
             }
         });
@@ -318,7 +320,8 @@ export class ChatManager {
         };
 
         // Execute for everyone so each client checks their own local settings
-        SocketsManager.socket.executeForEveryone("ATTEMPT_WHISPER", payload);
+        const { SocketsManager } = await import("./SocketManager.ts");
+        SocketsManager.socket.executeForEveryone("attemptWhisper", payload);
     }
 
     /**
@@ -328,6 +331,17 @@ export class ChatManager {
         if (!this.rerollQueue[combatantId]) this.rerollQueue[combatantId] = [];
         if (!this.rerollQueue[combatantId].includes(msgId)) {
             this.rerollQueue[combatantId].push(msgId);
+        }
+    }
+
+    /**
+     * Broadcasts a reroll to the GM to ensure it is tracked
+     */
+    static async broadcastReroll(combatantId: string, msgId: string) {
+        this.addToRerollQueue(combatantId, msgId);
+        if (!(game as any).user.isActiveGM) {
+            const { SocketsManager } = await import("./SocketManager.ts");
+            SocketsManager.socket.executeAsGM("queueReroll", { combatantId, msgId });
         }
     }
 
@@ -347,6 +361,7 @@ export class ChatManager {
      */
     static async handleDeletedMessage(combatant: CombatantPF2e, msgId: string) {
         if (this.rerollQueueIncludes(combatant, msgId)) return;
+        const { ActionManager } = await import("./ActionManager.ts");
         await ActionManager.removeAction(combatant, msgId);
     }
 
@@ -401,6 +416,7 @@ export class ChatManager {
         const targetCombatant = combatant || game.combat?.combatants.contents.find(c => (c as any).actorId === actor.id);
 
         if (targetCombatant) {
+            const { ActionManager } = await import("./ActionManager.ts");
             await ActionManager.stopSustaining(targetCombatant, itemId);
         }
 
@@ -444,10 +460,11 @@ export class ChatManager {
     /**
      * Moves the sustain-specific flag parsing out of the main loop
      */
-    private static processSustainMessage(message: ChatMessagePF2e, combatant: CombatantPF2e) {
+    private static async processSustainMessage(message: ChatMessagePF2e, combatant: CombatantPF2e) {
         const { itemId, itemName } = Detectors.SustainDetector.getSustainMetadata(message);
 
         if (itemId && message.id) {
+            const { ActionManager } = await import("./ActionManager.ts");
             ActionManager.trackSustain(combatant, message.id, itemId, itemName);
         }
     }

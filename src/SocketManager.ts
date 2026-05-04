@@ -1,27 +1,38 @@
 import { SCOPE } from "./globals.ts";
-import { ChatManager } from "./ChatManager.ts";
 import { SettingsManager } from "./SettingsManager.ts";
-import { notifyWarn } from "./logger.ts";
-import { MovementManager } from "./MovementManager.ts";
-import { logInfo } from "./logger.ts";
+import { logError, notifyWarn, logInfo } from "./logger.ts";
+
+declare const socketlib: any;
 
 export class SocketsManager {
     static socket: any;
 
     static initSockets() {
+        if (typeof socketlib === 'undefined') {
+            logError("PF2E Auto Action Tracker | socketlib not found! Multi-user synchronization will be disabled.");
+            return;
+        }
         // @ts-ignore
-        this.socket = socketlib.registerModule(SCOPE);
+        this.socket = socketlib.registerModule("pf2e-auto-action-tracker");
 
         // Register Sustain (Player -> GM)
         this.socket.register("processSustain", this._handleSustainRequest.bind(this));
         // Register Whisper (GM -> Everyone)
-        this.socket.register("ATTEMPT_WHISPER", this.handleSocketWhisper.bind(this));
+        this.socket.register("attemptWhisper", this.handleSocketWhisper.bind(this));
         // Register Movement (Player -> GM)
         this.socket.register("processMovement", this._handleMovementRequest.bind(this));
         // Register Remove Action (Player -> GM)
         this.socket.register("removeAction", this._handleRemoveActionRequest.bind(this));
         // Register Reset History (Any -> Everyone)
         this.socket.register("resetMovementHistory", this._handleResetHistoryRequest.bind(this));
+        // Register Add Action (Player -> GM)
+        this.socket.register("addAction", this._handleAddActionRequest.bind(this));
+        // Register Edit Action (Player -> GM)
+        this.socket.register("editAction", this._handleEditActionRequest.bind(this));
+        // Register Complete Complex Action (Player -> GM)
+        this.socket.register("completeComplexAction", this._handleCompleteComplexActionRequest.bind(this));
+        // Register Queue Reroll (Player -> GM)
+        this.socket.register("queueReroll", this._handleQueueRerollRequest.bind(this));
     }
 
     /**
@@ -40,6 +51,7 @@ export class SocketsManager {
 
         const actor = (game.actors as any).get(data.actorId);
         if (actor) {
+            const { ChatManager } = await import("./ChatManager.ts");
             if (data.choice === "yes") {
                 await ChatManager.processSustainYes(actor, data.itemId, data.itemName, data.combatantId);
             } else {
@@ -58,6 +70,7 @@ export class SocketsManager {
         const tokenDoc = game.scenes.active?.tokens.get(data.tokenId);
         if (!combatant || !tokenDoc) return;
 
+        const { MovementManager } = await import("./MovementManager.ts");
         // Process the movement with the data provided by the player
         await MovementManager.processMovementFromData(combatant as any, tokenDoc, data);
     }
@@ -75,10 +88,56 @@ export class SocketsManager {
     }
 
     /**
+     * GM-side handler for adding an action sent from a player client
+     */
+    private static async _handleAddActionRequest(data: any) {
+        if (!(game as any).user.isGM) return;
+        const combatant = game.combat?.combatants.get(data.combatantId);
+        if (!combatant) return;
+
+        const { ActionManager } = await import("./ActionManager.ts");
+        await ActionManager.addAction(combatant as any, data.action);
+    }
+
+    /**
+     * GM-side handler for editing an action sent from a player client
+     */
+    private static async _handleEditActionRequest(data: any) {
+        if (!(game as any).user.isGM) return;
+        const combatant = game.combat?.combatants.get(data.combatantId);
+        if (!combatant) return;
+
+        const { ActionManager } = await import("./ActionManager.ts");
+        await ActionManager.editAction(combatant as any, data.msgId, data.updates);
+    }
+
+    /**
+     * GM-side handler for completing a complex action sent from a player client
+     */
+    private static async _handleCompleteComplexActionRequest(data: any) {
+        if (!(game as any).user.isGM) return;
+        const combatant = game.combat?.combatants.get(data.combatantId);
+        if (!combatant) return;
+
+        const { ActionManager } = await import("./ActionManager.ts");
+        await ActionManager.completeComplexAction(combatant as any, data.action);
+    }
+
+    /**
+     * GM-side handler for adding a reroll to the queue sent from a player client
+     */
+    private static async _handleQueueRerollRequest(data: any) {
+        if (!(game as any).user.isGM) return;
+        const { ChatManager } = await import("./ChatManager.ts");
+        ChatManager.addToRerollQueue(data.combatantId, data.msgId);
+    }
+
+    /**
      * Handler for history reset sent from another client
      */
-    private static _handleResetHistoryRequest(data: any) {
+    private static async _handleResetHistoryRequest(data: any) {
         logInfo(`[Socket] Received History Reset | Token: ${data.tokenId || "ALL"} | Current User: ${game.user?.name}`);
+        const { MovementManager } = await import("./MovementManager.ts");
         MovementManager.resetCapturedHistory(data.tokenId);
     }
 

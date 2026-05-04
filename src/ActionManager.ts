@@ -2,9 +2,6 @@ import { SCOPE } from "./globals.ts";
 import { logConsole } from "./logger.ts";
 import { SettingsManager } from "./SettingsManager.ts";
 import { ActorHandler } from "./ActorHandler.ts";
-import { ChatManager } from "./ChatManager.ts";
-import { MovementManager } from "./MovementManager.ts";
-import { SocketsManager } from "./SocketManager.ts";
 import type { ActorPF2e, CombatantPF2e } from "module-helpers";
 import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
 import type { ActiveActivityState, ActionModifier } from "./complexActions/types.d.ts";
@@ -92,7 +89,10 @@ export class ActionManager {
 
         // Reset any captured movement history for this turn
         const tokenId = c.tokenId || c.token?.id;
-        if (tokenId) MovementManager.broadcastReset(tokenId);
+        if (tokenId) {
+            const { MovementManager } = await import("./MovementManager.ts");
+            MovementManager.broadcastReset(tokenId);
+        }
 
         // 1. Logic call to ActorHandler, but the ActionManager does the filing
         const isQuickened = ActorHandler.getQuickenedState(combatant);
@@ -128,6 +128,7 @@ export class ActionManager {
             [`flags.${SCOPE}.lastOverspendAlert`]: 0
         });
 
+        const { ChatManager } = await import("./ChatManager.ts");
         await ChatManager.checkSustainReminder(c);
     }
 
@@ -142,8 +143,9 @@ export class ActionManager {
         // Check for underspend to alert the player they had actions left
         const log = this.getActions(combatant);
         await this.checkUnderSpend(combatant, log);
-
-        // Reset all movement history for the next turn to ensure a clean state
+ 
+        // Reset all movement history for the next round to ensure a clean state
+        const { MovementManager } = await import("./MovementManager.ts");
         MovementManager.broadcastReset();
 
         // Stunned logic is removed from here because it's now handled at Start of Turn per RAW.
@@ -154,6 +156,16 @@ export class ActionManager {
      */
     static async addAction(combatant: CombatantPF2e, action: ActionLogEntry) {
         const c = combatant as any;
+
+        if (!(game as any).user.isActiveGM) {
+            const { SocketsManager } = await import("./SocketManager.ts");
+            return await SocketsManager.socket.executeAsGM("addAction", {
+                combatantId: (combatant as any as Combatant).id,
+                action
+            });
+        }
+ 
+        const { MovementManager } = await import("./MovementManager.ts");
         const tokenId = c.tokenId || c.token?.id;
         const isMove = MovementManager.isMoveAction(action.msgId);
 
@@ -195,9 +207,10 @@ export class ActionManager {
                 openEntry.ComplexActionState = result.newState;
                 // Use toString() for a clean, dynamic label
                 openEntry.label = ComplexActionEngine.toString(result.newState);
-
+ 
+                const { MovementManager } = await import("./MovementManager.ts");
                 // If this action completed the sequence and it wasn't a move, reset movement history
-                if (ComplexActionEngine.isComplete(result.newState) && !wasCompleteBeforeClaim && !isMove) {
+                if (ComplexActionEngine.isComplete(result.newState) && !wasCompleteBeforeClaim && !MovementManager.isMoveAction(action.msgId)) {
                     if (tokenId) MovementManager.resetCapturedHistory(tokenId);
                 }
 
@@ -214,12 +227,15 @@ export class ActionManager {
                 openEntry.ComplexActionState = ComplexActionEngine.complete(openEntry.ComplexActionState, ComplexActionEngine.getAllChildActions(openEntry.ComplexActionState).reverse()[0].msgId);
                 openEntry.label = ComplexActionEngine.toString(openEntry.ComplexActionState);
                 // Sequence completed/ejected, reset history
+                const { MovementManager } = await import("./MovementManager.ts");
                 if (tokenId) MovementManager.resetCapturedHistory(tokenId);
             } else if (action.cost > 0) {
                 // Sequence Broken
                 openEntry.ComplexActionState = ComplexActionEngine.complete(openEntry.ComplexActionState, action.msgId);
+                const { ChatManager } = await import("./ChatManager.ts");
                 await ChatManager.triggerAlert(c.actor, "Sequence Broken", `Cancelled ${openEntry.label}.`, 'whisperComplexAction');
                 // Sequence broken, reset history
+                const { MovementManager } = await import("./MovementManager.ts");
                 if (tokenId) MovementManager.resetCapturedHistory(tokenId);
             }
         }
@@ -229,9 +245,12 @@ export class ActionManager {
         if (newSequence) {
             action.ComplexActionState = newSequence;
             action.label = ComplexActionEngine.toString(newSequence);
-        } else if (!isMove) {
-            // Not a move and not starting a sequence, reset history
-            if (tokenId) MovementManager.broadcastReset(tokenId);
+        } else {
+            const { MovementManager } = await import("./MovementManager.ts");
+            if (!MovementManager.isMoveAction(action.msgId)) {
+                // Not a move and not starting a sequence, reset history
+                if (tokenId) MovementManager.broadcastReset(tokenId);
+            }
         }
 
         currentLog.push(action);
@@ -243,8 +262,18 @@ export class ActionManager {
      * Handles re-evaluation of complex activities if an edit "fixes" a broken sequence.
      */
     static async editAction(combatant: CombatantPF2e, msgId: string, updates: Partial<ActionLogEntry>) {
-        const currentLog = [...this._getInternalLog(combatant)];
         const c = combatant as any;
+
+        if (!(game as any).user.isActiveGM) {
+            const { SocketsManager } = await import("./SocketManager.ts");
+            return await SocketsManager.socket.executeAsGM("editAction", {
+                combatantId: (combatant as any as Combatant).id,
+                msgId,
+                updates
+            });
+        }
+
+        const currentLog = [...this._getInternalLog(combatant)];
 
         // 1. Identify the target and potential parent
         const topLevelIndex = currentLog.findIndex(e => e.msgId === msgId);
@@ -273,6 +302,7 @@ export class ActionManager {
                 // Promote the edited action to the top-level log
                 currentLog.push({ ...subAction, ...updates });
 
+                const { ChatManager } = await import("./ChatManager.ts");
                 await ChatManager.triggerAlert(
                     c.actor,
                     "Sequence Broken",
@@ -335,8 +365,9 @@ export class ActionManager {
         } else {
             return; // Action not found
         }
-
+ 
         // 4. Final Sync
+        const { MovementManager } = await import("./MovementManager.ts");
         await this._updateLogs(combatant, currentLog, MovementManager.isMoveAction(msgId));
     }
 
@@ -345,14 +376,16 @@ export class ActionManager {
      */
     static async removeAction(combatant: CombatantPF2e, msgId: string): Promise<void> {
         const currentLog = [...this._getInternalLog(combatant)];
-
+ 
         // Always reset movement history when an action is removed (Undo)
         const tokenId = (combatant as any).tokenId || (combatant as any).token?.id;
+        const { MovementManager } = await import("./MovementManager.ts");
         if (tokenId) MovementManager.broadcastReset(tokenId);
 
         // If this is a player, we must delegate the authoritative removal to the GM
-        if (!game.user?.isGM) {
-            SocketsManager.socket.executeAsGM("removeAction", {
+        if (!(game as any).user.isActiveGM) {
+            const { SocketsManager } = await import("./SocketManager.ts");
+            return await SocketsManager.socket.executeAsGM("removeAction", {
                 combatantId: (combatant as any as Combatant).id,
                 msgId
             });
@@ -390,6 +423,14 @@ export class ActionManager {
     }
 
     static async completeComplexAction(combatant: CombatantPF2e, action: ActionLogEntry) {
+        if (!(game as any).user.isActiveGM) {
+            const { SocketsManager } = await import("./SocketManager.ts");
+            return await SocketsManager.socket.executeAsGM("completeComplexAction", {
+                combatantId: (combatant as any as Combatant).id,
+                action
+            });
+        }
+
         const currentLog = [...this._getInternalLog(combatant)];
         if (!action.ComplexActionState) return;
 
@@ -461,6 +502,8 @@ export class ActionManager {
         removeSustainId?: string,
         extraFlags?: Record<string, any>
     ) {
+        if (!(game as any).user.isActiveGM) return;
+
         const c = combatant as any;
         const actionsSpent = newLogs.filter(e => e.type !== 'reaction').reduce((sum, e) => sum + (e.cost || 0), 0);
         const reactionsSpent = newLogs.filter(e => e.type === 'reaction').reduce((sum, e) => sum + (e.cost || 0), 0);
@@ -604,6 +647,7 @@ export class ActionManager {
         if (spent < max) {
             const diff = max - spent;
             // No need to cast 'actor' again inside the call, it's already typed now
+            const { ChatManager } = await import("./ChatManager.ts");
             await ChatManager.triggerAlert(actor, "Economy", `**${c.name}** ended turn with **${diff}** actions/bonus actions remaining.`, 'whisperUnderspend');
         }
     }
@@ -626,6 +670,7 @@ export class ActionManager {
             const reason = `Spent actions that exceeded available slots (${overspent.map(o => o.label).join(', ')}).`;
             const lastAlert = (c.getFlag(SCOPE, "lastOverspendAlert") as number) || 0;
             if (rawTotalSpent > lastAlert) {
+                const { ChatManager } = await import("./ChatManager.ts");
                 await ChatManager.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperOverspend');
             }
             return { lastOverspendAlert: rawTotalSpent };
@@ -645,6 +690,7 @@ export class ActionManager {
 
         if (overspent.length > 0) {
             const reason = `Spent reactions that exceeded available slots (${overspent.map(o => o.label).join(', ')}).`;
+            const { ChatManager } = await import("./ChatManager.ts");
             await ChatManager.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperReactionOverspend');
         }
 

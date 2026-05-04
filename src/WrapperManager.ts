@@ -23,7 +23,7 @@ export class WrapperManager {
                 );
 
                 if (combatant?.id) {
-                    ChatManager.addToRerollQueue(combatant.id, message.id);
+                    ChatManager.broadcastReroll(combatant.id, message.id);
                 }
             }
             return wrapped.apply(this, args);

@@ -1,13 +1,10 @@
 import { SCOPE } from "./globals.ts";
 import type { ActorPF2e, CombatantPF2e } from "module-helpers";
-import { ActionManager } from "./ActionManager.ts";
 import type { ActionLogEntry } from "./ActionManager.ts";
 import { ActorHandler } from "./ActorHandler.ts";
-import { ChatManager } from "./ChatManager.ts";
 import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
 import { logError, logInfo, logWarn } from "./logger.ts"
 import { GlobalConfig } from "./globals.ts";
-import { SocketsManager } from "./SocketManager.ts";
 
 const MOVEMENT_FLAG = "movementHistorySnapshot";
 
@@ -20,7 +17,8 @@ export class MovementManager {
     private static _lastInteractionDistance = new Map<string, number>();
     private static _lastCoords = new Map<string, any[]>();
 
-    static broadcastReset(tokenId?: string) {
+    static async broadcastReset(tokenId?: string) {
+        const { SocketsManager } = await import("./SocketManager.ts");
         if (!SocketsManager.socket) return;
         logInfo(`MovementManager | Broadcasting Reset | Token: ${tokenId || "ALL"}`);
         SocketsManager.socket.executeForEveryone("resetMovementHistory", { tokenId });
@@ -183,6 +181,7 @@ export class MovementManager {
                 recursiveCall: isRecursive,
                 mode: mode // Send the player's mode to the GM
             };
+            const { SocketsManager } = await import("./SocketManager.ts");
             // @ts-ignore
             SocketsManager.socket.executeAsGM("processMovement", payload);
             return;
@@ -219,6 +218,7 @@ export class MovementManager {
         const path = coordList.map(p => ({ x: p.x, y: p.y }));
         // This takes into account rough terrain and adds appropriate distance as needed
         const { distance } = (canvas.grid as any).measurePath(path);
+        const { ActionManager } = await import("./ActionManager.ts");
         const allActions = ActionManager.getFlattenedActions(combatant);
         const moveActions = allActions.filter(a => MovementManager.isMoveAction(a.msgId));
 
@@ -267,7 +267,9 @@ export class MovementManager {
         // B. ACTUAL UNDO (Ctrl+Z detected)
         if (isUndo) {
             if (lastResult && activeMsgId) {
+                const { ActionManager } = await import("./ActionManager.ts");
                 await ActionManager.removeAction(combatant, activeMsgId);
+                const { ChatManager } = await import("./ChatManager.ts");
                 ChatManager.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${lastResult.actionLabel ?? lastResult.entry.label}`, 'undoAlert');
                 MovementManager.storeMovement(tokenDoc, coordList);
                 await MovementManager._processNativeMovement(combatant, tokenDoc, coordList);
@@ -286,6 +288,7 @@ export class MovementManager {
             if (isContinuation && lastResult && activeMsgId && isActiveMove) {
                 const newCost = Math.ceil(segmentDistance / activeSpeed);
                 const label = MovementManager.getMovementLabel(segmentDistance, newCost, movementMode, isDifficult);
+                const { ActionManager } = await import("./ActionManager.ts");
                 await ActionManager.editAction(combatant, activeMsgId, { label, cost: newCost, slug: movementMode, distance: segmentDistance });
             } else {
                 // If it's a new drag starting from a fresh history, we treat its distance relative to what's already recorded.
@@ -295,6 +298,7 @@ export class MovementManager {
                     const cost = Math.ceil(newDistance / activeSpeed);
                     const label = MovementManager.getMovementLabel(newDistance, cost, movementMode, isDifficult);
 
+                    const { ActionManager } = await import("./ActionManager.ts");
                     await ActionManager.addAction(combatant, {
                         cost,
                         msgId: moveMsgId,
@@ -336,6 +340,7 @@ export class MovementManager {
 
         if (delta <= 0) return;
 
+        const { ActionManager } = await import("./ActionManager.ts");
         const lastResult = ActionManager.getLastAction(combatant);
         const activeMsgId = lastResult?.isSubAction ? lastResult.subAction?.msgId : lastResult?.entry.msgId;
         const isActiveMove = activeMsgId ? MovementManager.isMoveAction(activeMsgId) : false;
@@ -348,6 +353,7 @@ export class MovementManager {
             const newCost = Math.ceil(newDist / speed);
             const label = MovementManager.getMovementLabel(newDist, newCost, movementMode, isDifficult);
 
+            const { ActionManager } = await import("./ActionManager.ts");
             await ActionManager.editAction(combatant, activeMsgId, {
                 label,
                 cost: newCost,
@@ -359,6 +365,7 @@ export class MovementManager {
             const label = MovementManager.getMovementLabel(delta, cost, movementMode, isDifficult);
 
 
+            const { ActionManager } = await import("./ActionManager.ts");
             await ActionManager.addAction(combatant, {
                 cost,
                 msgId: `move-${tokenId}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -403,6 +410,7 @@ export class MovementManager {
     }
 
     private static async _removeMoveAction(combatant: CombatantPF2e) {
+        const { ActionManager } = await import("./ActionManager.ts");
         const lastResult = ActionManager.getLastAction(combatant);
         const activeMsgId = lastResult?.isSubAction ? lastResult.subAction?.msgId : lastResult?.entry.msgId;
 
@@ -414,6 +422,7 @@ export class MovementManager {
     private static async _performUndo(combatant: CombatantPF2e, actor: any, tokenDoc: any) {
         let safety = 0;
         while (safety < 50) {
+            const { ActionManager } = await import("./ActionManager.ts");
             const lastResult = ActionManager.getLastAction(combatant);
             if (!lastResult) {
                 break;
@@ -423,10 +432,12 @@ export class MovementManager {
             const label = lastResult.isSubAction ? lastResult.actionLabel : lastResult.entry.label;
 
             if (targetId) {
+                const { ActionManager } = await import("./ActionManager.ts");
                 const wasMove = MovementManager.isMoveAction(targetId);
                 await ActionManager.removeAction(combatant, targetId);
 
                 if (!wasMove) {
+                    const { ChatManager } = await import("./ChatManager.ts");
                     ChatManager.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${label}`, 'undoAlert');
                 } else {
                     break; // Successfully removed the movement segment
