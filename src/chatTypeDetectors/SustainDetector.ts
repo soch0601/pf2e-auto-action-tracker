@@ -36,9 +36,10 @@ export class SustainDetector {
         // ID Extraction
         let itemId = customFlags.sustainedItemId;
 
-        // Fallback 1: Try the Origin UUID (Standard PF2e way)
-        if (!itemId && flags.origin?.uuid) {
-            const originItem = fromUuidSync(flags.origin.uuid) as any;
+        // Fallback 1: Try our custom UUID or the Origin UUID (Standard PF2e way)
+        const originUuid = customFlags.sustainedItemUuid || flags.origin?.uuid;
+        if (!itemId && originUuid) {
+            const originItem = fromUuidSync(originUuid) as any;
             itemId = originItem?.id;
         }
 
@@ -51,7 +52,7 @@ export class SustainDetector {
         const itemName = customFlags.sustainedItemName ||
             flags.casting?.embeddedSpell?.name ||
             message.item?.name ||
-            (flags.origin?.uuid ? (fromUuidSync(flags.origin.uuid) as any)?.name : null) ||
+            (originUuid ? (fromUuidSync(originUuid) as any)?.name : null) ||
             "Action";
 
         return { itemId, itemName };

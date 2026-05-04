@@ -383,13 +383,12 @@ export class ChatManager {
                 alias: actor.name
             },
             flavor: `<h4 class="action"><strong>Sustain</strong> <span class="action-glyph">1</span></h4>`,
-            content: `<div class="pf2e">Sustaining <strong>${displayName}</strong></div>`,
+            content: `<div class="pf2e">Sustaining <strong>@UUID[${item?.uuid}]{${displayName}}</strong></div>`,
             flags: {
                 pf2e: {
                     origin: {
-                        uuid: item?.uuid,
                         name: displayName,
-                        type: item?.type || "item",
+                        type: "action",
                         slug: "sustain-a-spell"
                     },
                     context: {
@@ -401,6 +400,7 @@ export class ChatManager {
                 [SCOPE]: {
                     isSustainAutomation: true,
                     sustainedItemId: itemId,
+                    sustainedItemUuid: item?.uuid,
                     sustainedItemName: displayName
                 }
             }

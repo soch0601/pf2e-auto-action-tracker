@@ -51,3 +51,5 @@ Yes. Both modes use Foundry's path measurement. If you move from Square A to Squ
 
 **Why is my Stride entry increasing as I move?**
 Both modes try to be smart about your action economy. If you are in the middle of a move, the tracker will update the current "Stride" entry's distance and cost in real-time rather than cluttering your log with multiple 5ft Stride actions.
+
+If in the middle of a Complex Action that allows actions in the middle of movement (such as Dual-Weapon Blitz), this will try to maximize your allotted movement within the move action.

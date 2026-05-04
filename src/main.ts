@@ -151,7 +151,8 @@ Hooks.on("preCreateChatMessage", (message: any) => {
     const intentItemId = recentIntent.get(uniqueKey);
 
     // PF2e uses origin.uuid for item links in chat
-    const messageItemId = message.flags?.pf2e?.origin?.uuid?.split('.').pop();
+    const originUuid = message.flags?.[SCOPE]?.sustainedItemUuid || message.flags?.pf2e?.origin?.uuid;
+    const messageItemId = message.flags?.[SCOPE]?.sustainedItemId || originUuid?.split('.').pop();
 
     if (intentItemId && intentItemId === messageItemId) {
         message.updateSource({
