@@ -1,6 +1,6 @@
-import { IActionDetector } from './IActionDetector';
-import { SCOPE } from '../globals';
-import { getCostFromMsgFlavor, getIsReaction, getLabelFromMsgFlavor, getSlugFromMsgFlavor } from './detectorUtilities';
+import type { IActionDetector } from './IActionDetector.ts';
+import { SCOPE } from '../globals.ts';
+import { getCostFromMsgFlavor, getIsReaction, getLabelFromMsgFlavor, getSlugFromMsgFlavor } from './detectorUtilities.ts';
 
 export class SpellDetector {
 

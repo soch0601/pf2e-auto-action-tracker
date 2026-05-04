@@ -101,10 +101,11 @@ export class ActorHandler {
 
         const system = actor.system as any;
         const movement = system.movement;
-        
+        const landTypes = ["stride", "land", "walk"];
+
         // Handle newer system versions where it is system.movement
         if (movement && movement.speeds) {
-            const typeKey = (movementMode === "stride" || movementMode === "land") ? "land" : movementMode;
+            const typeKey = landTypes.includes(movementMode) ? "land" : movementMode;
             const targetSpeed = movement.speeds[typeKey];
             return targetSpeed?.value || speed_floor;
         }
@@ -114,7 +115,7 @@ export class ActorHandler {
         const speed = attributes?.speed;
         if (!speed) return speed_floor;
 
-        if (movementMode === "stride" || movementMode === "land") {
+        if (landTypes.includes(movementMode)) {
             return speed.total ?? speed_floor;
         }
 

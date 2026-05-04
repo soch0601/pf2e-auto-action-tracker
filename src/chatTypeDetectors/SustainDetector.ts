@@ -1,5 +1,5 @@
-import { IActionDetector } from './IActionDetector';
-import { SCOPE } from '../globals';
+import type { IActionDetector } from './IActionDetector.ts';
+import { SCOPE } from '../globals.ts';
 
 export class SustainDetector {
 

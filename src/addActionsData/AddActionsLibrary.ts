@@ -1,4 +1,4 @@
-import type { ExtraSlotDefinition } from "./types";
+import type { ExtraSlotDefinition } from "./types.d.ts";
 
 export const AddActionsLibrary: Record<string, ExtraSlotDefinition> = {
     "quickened": {

@@ -1,4 +1,4 @@
-import { SpecialActivity } from './types';
+import type { SpecialActivity } from './types.d.ts';
 
 export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
     {

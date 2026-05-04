@@ -1,4 +1,4 @@
-import { SCOPE } from "./globals";
+import { SCOPE } from "./globals.ts";
 
 export class SettingsManager {
 

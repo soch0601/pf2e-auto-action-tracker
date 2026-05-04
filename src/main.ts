@@ -46,7 +46,7 @@ function observePf2eHudTracker(combat: any): boolean {
 // Initialization
 Hooks.once("init", () => {
     SettingsManager.registerSettings();
-    loadTemplates([
+    (foundry.applications as any).handlebars.loadTemplates([
         `modules/${SCOPE}/templates/sustain-reminder.hbs`
     ]);
     ChatManager.registerOverrideListeners();
@@ -256,19 +256,19 @@ Hooks.on("updateCombat", async (combat: EncounterPF2e, updateData: any, options:
 });
 
 // Movement Hooks
-Hooks.on("preUpdateToken", (tokenDoc: any, update: any, options: any) => {
-    if (game.user?.id !== game.users?.activeGM?.id) return;
+Hooks.on("preUpdateToken", (tokenDoc: any, update: any, options: any, userId: string) => {
+    if (game.user?.id !== userId) return;
     MovementManager.handlePreUpdateToken(tokenDoc, update, options);
 });
 
-Hooks.on("updateToken", (tokenDoc: any, update: any) => {
-    if (game.user?.id !== game.users?.activeGM?.id) return;
+Hooks.on("updateToken", (tokenDoc: any, update: any, options: any, userId: string) => {
+    if (game.user?.id !== userId) return;
     if (!("x" in update || "y" in update || update.movementAction)) return;
 
     const combatant: Combatant = tokenDoc.combatant;
     if (!combatant?.id) return;
 
-    enqueueAction(combatant.id, async () => await MovementManager.handleTokenUpdate(tokenDoc, update));
+    enqueueAction(combatant.id, async () => await MovementManager.handleTokenUpdate(tokenDoc, update, options));
 });
 
 // Condition Hooks for dynamic Reaction Loss
@@ -324,11 +324,6 @@ Hooks.on("deleteItem", async (item: any) => {
 
 export async function enqueueAction(combatantId: string, actionFn: () => Promise<void>) {
     const existingPromise = _queues.get(combatantId);
-
-    // LOGGING: Check if we are actually waiting, useful if debugMode is on I think?
-    if (existingPromise) {
-        logWarn(`Action Tracker | RACE PREVENTED: New action for ${combatantId} is waiting for a previous operation to finish.`);
-    }
 
     const startPromise = existingPromise || Promise.resolve();
 

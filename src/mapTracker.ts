@@ -1,4 +1,4 @@
-import type { ActionLogEntry } from "./ActionManager";
+import type { ActionLogEntry } from "./ActionManager.ts";
 
 export function isMapRelevantAction(entry: Partial<ActionLogEntry>): boolean {
     return entry.isMapRelevant === true && entry.type !== "reaction" && !entry.actionModifiers?.includes("deferMAP");

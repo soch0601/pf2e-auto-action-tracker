@@ -1,4 +1,4 @@
-import { IActionDetector } from "./IActionDetector";
+import type { IActionDetector } from "./IActionDetector.ts";
 
 export class HardIgnoreDetector {
 

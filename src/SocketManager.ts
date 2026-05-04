@@ -1,6 +1,9 @@
-import { SCOPE } from "./globals";
-import { ChatManager } from "./ChatManager";
-import { SettingsManager } from "./SettingsManager";
+import { SCOPE } from "./globals.ts";
+import { ChatManager } from "./ChatManager.ts";
+import { SettingsManager } from "./SettingsManager.ts";
+import { notifyWarn } from "./logger.ts";
+import { MovementManager } from "./MovementManager.ts";
+import { logInfo } from "./logger.ts";
 
 export class SocketsManager {
     static socket: any;
@@ -13,6 +16,12 @@ export class SocketsManager {
         this.socket.register("processSustain", this._handleSustainRequest.bind(this));
         // Register Whisper (GM -> Everyone)
         this.socket.register("ATTEMPT_WHISPER", this.handleSocketWhisper.bind(this));
+        // Register Movement (Player -> GM)
+        this.socket.register("processMovement", this._handleMovementRequest.bind(this));
+        // Register Remove Action (Player -> GM)
+        this.socket.register("removeAction", this._handleRemoveActionRequest.bind(this));
+        // Register Reset History (Any -> Everyone)
+        this.socket.register("resetMovementHistory", this._handleResetHistoryRequest.bind(this));
     }
 
     /**
@@ -41,6 +50,39 @@ export class SocketsManager {
     }
 
     /**
+     * GM-side handler for movement data sent from a player client
+     */
+    private static async _handleMovementRequest(data: any) {
+        if (!(game as any).user.isGM) return;
+        const combatant = game.combat?.combatants.get(data.combatantId);
+        const tokenDoc = game.scenes.active?.tokens.get(data.tokenId);
+        if (!combatant || !tokenDoc) return;
+
+        // Process the movement with the data provided by the player
+        await MovementManager.processMovementFromData(combatant as any, tokenDoc, data);
+    }
+
+    /**
+     * GM-side handler for action removal sent from a player client
+     */
+    private static async _handleRemoveActionRequest(data: any) {
+        if (!(game as any).user.isGM) return;
+        const combatant = game.combat?.combatants.get(data.combatantId);
+        if (!combatant) return;
+
+        const { ActionManager } = await import("./ActionManager.ts");
+        await ActionManager.removeAction(combatant as any, data.msgId);
+    }
+
+    /**
+     * Handler for history reset sent from another client
+     */
+    private static _handleResetHistoryRequest(data: any) {
+        logInfo(`[Socket] Received History Reset | Token: ${data.tokenId || "ALL"} | Current User: ${game.user?.name}`);
+        MovementManager.resetCapturedHistory(data.tokenId);
+    }
+
+    /**
      * Called by the player's UI
      */
     static emitSustainChoice(payload: any) {
@@ -58,7 +100,10 @@ export class SocketsManager {
         if (!isTarget && !isGM) return; // Ignore if current client is not a GM or not the target
 
         const isEnabled = SettingsManager.get(setting);
-        if (setting && !SettingsManager.get(setting)) return; // Setting is turned off, ignore
+        if (setting && !isEnabled) return; // Setting is turned off, ignore
+
+        // Trigger the UI notification popup
+        notifyWarn(`${header}: ${message}`);
 
         // Create a LOCAL-ONLY chat message. 
         // Because this runs on the recipient's machine, only they see it.

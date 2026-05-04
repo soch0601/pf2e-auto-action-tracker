@@ -1,6 +1,6 @@
-import { IActionDetector } from './IActionDetector';
-import { getIsReaction } from './detectorUtilities';
-import { getSkillActionMapMetadata } from './skillMapMetadata';
+import type { IActionDetector } from './IActionDetector.ts';
+import { getIsReaction } from './detectorUtilities.ts';
+import { getSkillActionMapMetadata } from './skillMapMetadata.ts';
 
 export class SkillDetector {
     static readonly id = "SkillDetector";

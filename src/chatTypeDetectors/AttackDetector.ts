@@ -1,5 +1,5 @@
-import { getCostFromMsgFlavor, getIsReaction, getLabelFromMsgFlavor, getSlugFromMsgFlavor } from "./detectorUtilities";
-import { IActionDetector, IActionDetails } from "./IActionDetector";
+import { getCostFromMsgFlavor, getIsReaction, getLabelFromMsgFlavor, getSlugFromMsgFlavor } from "./detectorUtilities.ts";
+import type { IActionDetector, IActionDetails } from "./IActionDetector.ts";
 
 export class AttackDetector {
 

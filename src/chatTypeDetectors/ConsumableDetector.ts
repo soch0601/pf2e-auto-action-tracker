@@ -1,6 +1,6 @@
-import { IActionDetector } from './IActionDetector';
-import { SCOPE } from '../globals';
-import { getLabelFromMsgFlavor, getSlugFromMsgFlavor } from './detectorUtilities';
+import type { IActionDetector } from './IActionDetector.ts';
+import { SCOPE } from '../globals.ts';
+import { getLabelFromMsgFlavor, getSlugFromMsgFlavor } from './detectorUtilities.ts';
 
 export class ConsumableDetector {
 

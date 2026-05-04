@@ -1,13 +1,14 @@
-import { SCOPE } from "./globals";
-import { logConsole } from "./logger";
-import { SettingsManager } from "./SettingsManager";
-import { ActorHandler } from "./ActorHandler";
-import { ChatManager } from "./ChatManager";
-import { MovementManager } from "./MovementManager";
-import { ActorPF2e, CombatantPF2e } from "module-helpers";
-import { ComplexActionEngine } from "./complexActions/ComplexActionEngine";
-import type { ActiveActivityState, ActionModifier } from "./complexActions/types";
-import { getCurrentMapStateFromLog } from "./mapTracker";
+import { SCOPE } from "./globals.ts";
+import { logConsole } from "./logger.ts";
+import { SettingsManager } from "./SettingsManager.ts";
+import { ActorHandler } from "./ActorHandler.ts";
+import { ChatManager } from "./ChatManager.ts";
+import { MovementManager } from "./MovementManager.ts";
+import { SocketsManager } from "./SocketManager.ts";
+import type { ActorPF2e, CombatantPF2e } from "module-helpers";
+import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
+import type { ActiveActivityState, ActionModifier } from "./complexActions/types.d.ts";
+import { getCurrentMapStateFromLog } from "./mapTracker.ts";
 
 export interface ActionLogEntry {
     cost: number;
@@ -91,7 +92,7 @@ export class ActionManager {
 
         // Reset any captured movement history for this turn
         const tokenId = c.tokenId || c.token?.id;
-        if (tokenId) MovementManager.resetCapturedHistory(tokenId);
+        if (tokenId) MovementManager.broadcastReset(tokenId);
 
         // 1. Logic call to ActorHandler, but the ActionManager does the filing
         const isQuickened = ActorHandler.getQuickenedState(combatant);
@@ -142,9 +143,8 @@ export class ActionManager {
         const log = this.getActions(combatant);
         await this.checkUnderSpend(combatant, log);
 
-        // Reset movement history for the next turn
-        const tokenId = (combatant as any).tokenId || (combatant as any).token?.id;
-        if (tokenId) MovementManager.resetCapturedHistory(tokenId);
+        // Reset all movement history for the next turn to ensure a clean state
+        MovementManager.broadcastReset();
 
         // Stunned logic is removed from here because it's now handled at Start of Turn per RAW.
     }
@@ -231,7 +231,7 @@ export class ActionManager {
             action.label = ComplexActionEngine.toString(newSequence);
         } else if (!isMove) {
             // Not a move and not starting a sequence, reset history
-            if (tokenId) MovementManager.resetCapturedHistory(tokenId);
+            if (tokenId) MovementManager.broadcastReset(tokenId);
         }
 
         currentLog.push(action);
@@ -344,12 +344,19 @@ export class ActionManager {
      * Remove an existing ActionLogEntry from the action log for the current turn
      */
     static async removeAction(combatant: CombatantPF2e, msgId: string): Promise<void> {
-        const stack = new Error().stack;
         const currentLog = [...this._getInternalLog(combatant)];
 
         // Always reset movement history when an action is removed (Undo)
         const tokenId = (combatant as any).tokenId || (combatant as any).token?.id;
-        if (tokenId) MovementManager.resetCapturedHistory(tokenId);
+        if (tokenId) MovementManager.broadcastReset(tokenId);
+
+        // If this is a player, we must delegate the authoritative removal to the GM
+        if (!game.user?.isGM) {
+            SocketsManager.socket.executeAsGM("removeAction", {
+                combatantId: (combatant as any as Combatant).id,
+                msgId
+            });
+        }
 
         // 1. UNLOCK: If any activity was locked/broken by this specific ID, clear it
         currentLog.forEach(e => {

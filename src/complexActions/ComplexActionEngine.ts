@@ -1,7 +1,7 @@
-import { SPECIAL_ACTIVITIES } from "./library";
-import type { ActiveActivityState, LeafState, OperatorNode, ActionNode, GroupNode } from "./types";
-import type { ActionLogEntry } from "../ActionManager";
-import { MovementManager } from "../MovementManager";
+import { SPECIAL_ACTIVITIES } from "./library.ts";
+import type { ActiveActivityState, LeafState, OperatorNode, ActionNode, GroupNode } from "./types.d.ts";
+import type { ActionLogEntry } from "../ActionManager.ts";
+import { MovementManager } from "../MovementManager.ts";
 import type { CombatantPF2e } from "module-helpers";
 
 export class ComplexActionEngine {

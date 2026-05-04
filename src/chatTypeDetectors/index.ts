@@ -1,9 +1,9 @@
-import { AttackDetector } from "./AttackDetector";
-import { ConsumableDetector } from "./ConsumableDetector";
-import { GenericActionDetector } from "./GenericDetector";
-import { HardIgnoreDetector } from "./HardIgnoreDetector";
-import { SkillDetector } from "./SkillDetector";
-import { SpellDetector } from "./SpellDetector";
-import { SustainDetector } from "./SustainDetector";
+import { AttackDetector } from "./AttackDetector.ts";
+import { ConsumableDetector } from "./ConsumableDetector.ts";
+import { GenericActionDetector } from "./GenericDetector.ts";
+import { HardIgnoreDetector } from "./HardIgnoreDetector.ts";
+import { SkillDetector } from "./SkillDetector.ts";
+import { SpellDetector } from "./SpellDetector.ts";
+import { SustainDetector } from "./SustainDetector.ts";
 
 export { AttackDetector, ConsumableDetector, GenericActionDetector, HardIgnoreDetector, SkillDetector, SpellDetector, SustainDetector };

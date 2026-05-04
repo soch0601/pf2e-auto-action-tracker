@@ -1,12 +1,13 @@
-import { ActionManager, ActionLogEntry } from "./ActionManager";
-import { SCOPE } from "./globals";
-import { ActorPF2e, ChatMessagePF2e, CombatantPF2e } from "module-helpers";
-import { SettingsManager } from "./SettingsManager";
-import { ActorHandler } from "./ActorHandler";
-import { SocketsManager } from "./SocketManager";
-import { logConsole } from "./logger"
-import * as Detectors from "./chatTypeDetectors";
-import type { IActionDetails } from "./chatTypeDetectors/IActionDetector";
+import { ActionManager } from "./ActionManager.ts";
+import type { ActionLogEntry } from "./ActionManager.ts";
+import { SCOPE } from "./globals.ts";
+import type { ActorPF2e, ChatMessagePF2e, CombatantPF2e } from "module-helpers";
+import { SettingsManager } from "./SettingsManager.ts";
+import { ActorHandler } from "./ActorHandler.ts";
+import { SocketsManager } from "./SocketManager.ts";
+import { logConsole } from "./logger.ts"
+import * as Detectors from "./chatTypeDetectors/index.ts";
+import type { IActionDetails } from "./chatTypeDetectors/IActionDetector.ts";
 
 // Use a Template Literal Type for clarity, or just string
 type CombatantId = string;
