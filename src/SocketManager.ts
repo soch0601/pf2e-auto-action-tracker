@@ -9,11 +9,11 @@ export class SocketsManager {
 
     static initSockets() {
         if (typeof socketlib === 'undefined') {
-            logError("PF2E Auto Action Tracker | socketlib not found! Multi-user synchronization will be disabled.");
+            logError("socketlib not found! Multi-user synchronization will be disabled.");
             return;
         }
         // @ts-ignore
-        this.socket = socketlib.registerModule("pf2e-auto-action-tracker");
+        this.socket = socketlib.registerModule(SCOPE);
 
         // Register Sustain (Player -> GM)
         this.socket.register("processSustain", this._handleSustainRequest.bind(this));
