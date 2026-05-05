@@ -3,7 +3,6 @@ import type { ActiveActivityState, LeafState, OperatorNode, ActionNode, GroupNod
 import type { ActionLogEntry } from "../ActionManager.ts";
 import { MovementManager } from "../MovementManager.ts";
 import type { CombatantPF2e } from "module-helpers";
-import { logInfo } from "../logger.ts";
 
 export class ComplexActionEngine {
 
@@ -80,11 +79,8 @@ export class ComplexActionEngine {
                 newState.orderedActivityChildActions.push(incoming.action);
             }
 
-            logInfo('ComplexActionEngine: Successfully claimed', newState, incoming);
             return { newState, claimed: true };
         }
-
-        logInfo('ComplexActionEngine: Failed to claim', newState, incoming);
 
         return { newState: state, claimed: false };
     }
