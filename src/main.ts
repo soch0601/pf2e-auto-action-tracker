@@ -162,8 +162,9 @@ Hooks.on("preCreateChatMessage", (message: any) => {
     }
 });
 
-// Rendering the chat message
-Hooks.on("renderChatMessage", (message: ChatMessagePF2e, html: any) => {
+// Rendering the chat message — v13+ uses renderChatMessageHTML (HTMLElement); legacy renderChatMessage hook
+// is deprecated since v13 and removed in v15.
+Hooks.on("renderChatMessageHTML", (message: ChatMessagePF2e, html: HTMLElement) => {
     // Does not need enqueuing - This only create messages and click handlers -> which creates more messages.  So no
     // modifications of actions here
     ChatManager.onRenderChatMessage(message, html);

@@ -214,57 +214,64 @@ export class ChatManager {
     /**
      * Handles rendering of the chat messages for our custom sustain spells - and adds the onClick logic for the buttons in it
      */
-    static onRenderChatMessage(message: any, html: JQuery) {
-        const sustainButtons = html.find("button[data-action^='sustain-']");
+    static onRenderChatMessage(message: any, html: HTMLElement) {
+        const sustainButtons = html.querySelectorAll<HTMLButtonElement>("button[data-action^='sustain-']");
         if (sustainButtons.length === 0) return;
 
         const choiceData = message.getFlag(SCOPE, "sustainChoice") as { choice: string, itemName: string };
 
         if (choiceData) {
-            const card = html.find('.pf2e-auto-action-tracker-sustain-card');
-            if (choiceData.choice === 'yes') {
-                card.find("button[data-action='sustain-yes']").html('<i class="fas fa-check"></i> Sustained').prop('disabled', true);
-                card.find("button[data-action='sustain-no']").hide();
+            const card = html.querySelector(".pf2e-auto-action-tracker-sustain-card");
+            if (!card) return;
+            const yesBtn = card.querySelector<HTMLButtonElement>("button[data-action='sustain-yes']");
+            const noBtn = card.querySelector<HTMLButtonElement>("button[data-action='sustain-no']");
+            if (!yesBtn || !noBtn) return;
+            if (choiceData.choice === "yes") {
+                yesBtn.innerHTML = '<i class="fas fa-check"></i> Sustained';
+                yesBtn.disabled = true;
+                noBtn.style.display = "none";
             } else {
-                card.find("button[data-action='sustain-no']").html('<i class="fas fa-times"></i> Lapsed').prop('disabled', true);
-                card.find("button[data-action='sustain-yes']").hide();
+                noBtn.innerHTML = '<i class="fas fa-times"></i> Lapsed';
+                noBtn.disabled = true;
+                yesBtn.style.display = "none";
             }
             return;
         }
 
-        sustainButtons.on("click", async (event) => {
-            event.preventDefault();
-            const button = event.currentTarget;
-            const { action, actorId, itemId, itemName, combatantId } = button.dataset;
- 
-            const actor = (game.actors as any).get(actorId ?? "");
-            if (!actor || (!actor.isOwner && !game.user.isGM)) return;
- 
-            // Resolve the combatant directly by ID (Identity Crisis Solved)
-            const combatant = game.combat?.combatants.get(combatantId || "");
- 
-            const choice = action === "sustain-yes" ? "yes" : "no";
-            const payload = {
-                messageId: message.id,
-                actorId: actor.id,
-                combatantId: combatantId, // Pass this to the socket
-                itemId: itemId || "",
-                itemName: itemName || "",
-                choice: choice
-            };
- 
-            if (game.user.isGM) {
-                if (choice === "yes") {
-                    await this.processSustainYes(actor, itemId || "", itemName || "", combatantId);
+        sustainButtons.forEach((button) => {
+            button.addEventListener("click", async (event) => {
+                event.preventDefault();
+                const { action, actorId, itemId, itemName, combatantId } = button.dataset;
+
+                const actor = (game.actors as any).get(actorId ?? "");
+                if (!actor || (!actor.isOwner && !game.user.isGM)) return;
+
+                // Resolve the combatant directly by ID (Identity Crisis Solved)
+                const combatant = game.combat?.combatants.get(combatantId || "");
+
+                const choice = action === "sustain-yes" ? "yes" : "no";
+                const payload = {
+                    messageId: message.id,
+                    actorId: actor.id,
+                    combatantId: combatantId, // Pass this to the socket
+                    itemId: itemId || "",
+                    itemName: itemName || "",
+                    choice: choice
+                };
+
+                if (game.user.isGM) {
+                    if (choice === "yes") {
+                        await this.processSustainYes(actor, itemId || "", itemName || "", combatantId);
+                    } else {
+                        // Pass the specific combatant found via ID
+                        await this.processSustainNo(actor, itemId || "", combatant);
+                    }
+                    await (message as any).setFlag(SCOPE, "sustainChoice", { choice, itemName });
                 } else {
-                    // Pass the specific combatant found via ID
-                    await this.processSustainNo(actor, itemId || "", combatant);
+                    const { SocketsManager } = await import("./SocketManager.ts");
+                    SocketsManager.emitSustainChoice(payload);
                 }
-                await (message as any).setFlag(SCOPE, "sustainChoice", { choice, itemName });
-            } else {
-                const { SocketsManager } = await import("./SocketManager.ts");
-                SocketsManager.emitSustainChoice(payload);
-            }
+            });
         });
     }
 
