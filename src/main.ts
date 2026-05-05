@@ -73,11 +73,7 @@ Hooks.on("closeDamageModifierDialog", async (app: any) => {
         delete (app.actor as any)._lastDamageOriginId;
     }
 
-    // 2. If the dialog closed because they rolled, the message creation 
-    // logic already handled the queue/flags.
-    if (app.element?.[0]?._wasRolled) return;
-
-    // 3. Find the combatant
+    // 2. Find the combatant
     const tokenId = app.token?.id;
     const actorId = app.actor?.id;
 
@@ -88,7 +84,7 @@ Hooks.on("closeDamageModifierDialog", async (app: any) => {
     const c = combatant as any;
     if (!c?.id || !combatant) return;
 
-    // 4. Safety cleanup is a write operation, enqueue it
+    // 3. Safety cleanup is a write operation, enqueue it
     enqueueAction(c.id, async () => await ChatManager.handleDamageModifierDialogRender(combatant, app));
 });
 
