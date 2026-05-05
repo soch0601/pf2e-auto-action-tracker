@@ -22,8 +22,8 @@ export class SkillDetector {
         const skillSlug = skillOption ? skillOption.replace("check:statistic:", "") : "";
 
         // 3. Determine the Slug
-        // We prioritize the action (shove) but fallback to the skill (athletics)
-        const slug = skillSlug || context?.type || "skill-check";
+        // We prioritize the action (hide, shove) but fallback to the skill (stealth, athletics)
+        const slug = context?.action || skillSlug || context?.type || "skill-check";
 
         // 4. Clean the Label
         let label = context?.title || "Skill Check";

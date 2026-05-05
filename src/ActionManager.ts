@@ -143,7 +143,7 @@ export class ActionManager {
         // Check for underspend to alert the player they had actions left
         const log = this.getActions(combatant);
         await this.checkUnderSpend(combatant, log);
- 
+
         // Reset all movement history for the next round to ensure a clean state
         const { MovementManager } = await import("./MovementManager.ts");
         MovementManager.broadcastReset();
@@ -164,7 +164,7 @@ export class ActionManager {
                 action
             });
         }
- 
+
         const { MovementManager } = await import("./MovementManager.ts");
         const tokenId = c.tokenId || c.token?.id;
         const isMove = MovementManager.isMoveAction(action.msgId);
@@ -189,6 +189,13 @@ export class ActionManager {
         const currentLog = [...this._getInternalLog(combatant)];
         const incomingSlug = action.slug || (action.type === 'action' ? 'strike' : action.type);
 
+        // 0. Prepare potential new sequence for the incoming action
+        const newSequence = ComplexActionEngine.maybeStart(incomingSlug, action.msgId, (combatant as unknown as Combatant).token);
+        if (newSequence) {
+            action.ComplexActionState = newSequence;
+            action.label = ComplexActionEngine.toString(newSequence);
+        }
+
         // 1. Check for OPEN sequences
         const openEntry = currentLog.find(e => e.ComplexActionState && !e.ComplexActionState.completedBy);
 
@@ -207,7 +214,7 @@ export class ActionManager {
                 openEntry.ComplexActionState = result.newState;
                 // Use toString() for a clean, dynamic label
                 openEntry.label = ComplexActionEngine.toString(result.newState);
- 
+
                 const { MovementManager } = await import("./MovementManager.ts");
                 // If this action completed the sequence and it wasn't a move, reset movement history
                 if (ComplexActionEngine.isComplete(result.newState) && !wasCompleteBeforeClaim && !MovementManager.isMoveAction(action.msgId)) {
@@ -240,12 +247,7 @@ export class ActionManager {
             }
         }
 
-        // 2. Check for NEW sequence
-        const newSequence = ComplexActionEngine.maybeStart(incomingSlug, action.msgId, (combatant as unknown as Combatant).token);
-        if (newSequence) {
-            action.ComplexActionState = newSequence;
-            action.label = ComplexActionEngine.toString(newSequence);
-        } else {
+        if (!action.ComplexActionState) {
             const { MovementManager } = await import("./MovementManager.ts");
             if (!MovementManager.isMoveAction(action.msgId)) {
                 // Not a move and not starting a sequence, reset history
@@ -365,7 +367,7 @@ export class ActionManager {
         } else {
             return; // Action not found
         }
- 
+
         // 4. Final Sync
         const { MovementManager } = await import("./MovementManager.ts");
         await this._updateLogs(combatant, currentLog, MovementManager.isMoveAction(msgId));
@@ -376,7 +378,7 @@ export class ActionManager {
      */
     static async removeAction(combatant: CombatantPF2e, msgId: string): Promise<void> {
         const currentLog = [...this._getInternalLog(combatant)];
- 
+
         // Always reset movement history when an action is removed (Undo)
         const tokenId = (combatant as any).tokenId || (combatant as any).token?.id;
         const { MovementManager } = await import("./MovementManager.ts");
