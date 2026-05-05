@@ -358,6 +358,16 @@ export async function enqueueAction(combatantId: string, actionFn: () => Promise
     });
 
     _queues.set(combatantId, newPromise);
+
+    // Drop the entry once it settles, but only if no later enqueueAction has replaced the head.
+    // Without this, the map accumulates one resolved Promise per combatant ever queued, growing
+    // unboundedly across long sessions.
+    newPromise.finally(() => {
+        if (_queues.get(combatantId) === newPromise) {
+            _queues.delete(combatantId);
+        }
+    });
+
     return newPromise;
 }
 
