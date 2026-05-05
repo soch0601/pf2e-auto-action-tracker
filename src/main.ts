@@ -298,6 +298,14 @@ Hooks.on("updateToken", (tokenDoc: any, update: any, options: any, userId: strin
     enqueueAction(combatant.id, async () => await MovementManager.handleTokenUpdate(tokenDoc, update, options));
 });
 
+// Drop captured movement state for tokens that leave the scene. The MovementManager keeps
+// per-token Maps (_capturedHistory, _historyLengths, _lastCoords, _lastInteractionDistance)
+// that are never otherwise pruned for deleted tokens, so without this hook those Maps grow
+// across long campaigns as tokens come and go.
+Hooks.on("deleteToken", (tokenDoc: any) => {
+    if (tokenDoc?.id) MovementManager.resetCapturedHistory(tokenDoc.id);
+});
+
 // Condition Hooks for dynamic Reaction Loss
 Hooks.on("createItem", async (item: any) => {
     if (game.user?.id !== game.users?.activeGM?.id) return;
