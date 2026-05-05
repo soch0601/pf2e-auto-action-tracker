@@ -15,6 +15,7 @@ import { findPf2eHudTracker } from "./trackerAdapters";
 // string is the combatant ID.
 const _queues = new Map<string, Promise<void>>();
 let pf2eHudObserver: MutationObserver | undefined;
+let pf2eHudObservedCombatId: string | undefined;
 let isReady = false;
 
 function syncPf2eHudTracker(combat: any): boolean {
@@ -41,6 +42,7 @@ function observePf2eHudTracker(combat: any): boolean {
         }
     });
     pf2eHudObserver.observe(hudTracker, { childList: true, subtree: true });
+    pf2eHudObservedCombatId = combat.id;
     return true;
 }
 
@@ -128,6 +130,16 @@ Hooks.on("deleteChatMessage", async (message: ChatMessagePF2e) => {
 // End of Combat hook
 Hooks.on("deleteCombat", async (combat: EncounterPF2e) => {
     const g = game as unknown as Game;
+
+    // Per-client cleanup runs on every client (not just the GM): the MutationObserver holds a
+    // closure reference to the ended combat and would otherwise keep observing the HUD tracker
+    // DOM until the next renderCombatTracker fires. Match the observed combat id so we don't
+    // tear down a newer observer that has already moved on.
+    if (pf2eHudObserver && pf2eHudObservedCombatId === combat.id) {
+        pf2eHudObserver.disconnect();
+        pf2eHudObserver = undefined;
+        pf2eHudObservedCombatId = undefined;
+    }
 
     if (game.user?.id !== game.users?.activeGM?.id) return;
 
