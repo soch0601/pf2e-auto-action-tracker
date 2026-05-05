@@ -1,5 +1,5 @@
 import { ChatManager } from "./ChatManager";
-import { logConsole } from "./logger";
+import { logConsole, logWarn } from "./logger";
 import { recentIntent } from "./globals";
 
 declare const libWrapper: any;
@@ -13,8 +13,20 @@ export class WrapperManager {
             return;
         }
 
+        // Each registration is wrapped individually so that a missing or renamed PF2E target
+        // (e.g. after a system update) only disables that one feature instead of throwing out
+        // of `wrapFunctions` and leaving the remaining wraps unregistered.
+        const tryRegister = (target: string, fn: any) => {
+            try {
+                libWrapper.register("pf2e-auto-action-tracker", target, fn, "WRAPPER");
+            } catch (e) {
+                const reason = (e instanceof Error ? e.message : String(e)) || "unknown error";
+                logWarn(`libWrapper failed to wrap ${target}: ${reason}. Related tracking will be disabled.`);
+            }
+        };
+
         // Wrap the Check.rerollFromMessage to log the old message ID from a message being rerolled.  Used to track which action to update once the reroll happens
-        libWrapper.register("pf2e-auto-action-tracker", "game.pf2e.Check.rerollFromMessage", function (this: any, wrapped: Function, ...args: any[]) {
+        tryRegister("game.pf2e.Check.rerollFromMessage", function (this: any, wrapped: Function, ...args: any[]) {
             const message = args[0];
             if (message?.id) {
                 const speaker = message.speaker;
@@ -27,11 +39,10 @@ export class WrapperManager {
                 }
             }
             return wrapped.apply(this, args);
-        }, "WRAPPER");
+        });
 
         // Wrapper for tracking spell casting (as opposed to spell linking)
-        libWrapper.register(
-            "pf2e-auto-action-tracker",
+        tryRegister(
             "CONFIG.PF2E.Item.documentClasses.spellcastingEntry.prototype.cast",
             async function (this: any, wrapped: Function, spell: any, options: any = {}) {
                 const actor = this.actor;
@@ -43,13 +54,11 @@ export class WrapperManager {
                 }
 
                 return wrapped(spell, options);
-            },
-            "WRAPPER"
+            }
         );
 
         // Wrapper for tracking consumable using (as opposed to consumable linking)
-        libWrapper.register(
-            "pf2e-auto-action-tracker",
+        tryRegister(
             "CONFIG.PF2E.Item.documentClasses.consumable.prototype.consume",
             async function (this: any, wrapped: Function, ...args: any[]) {
                 const actor = this.actor;
@@ -60,8 +69,7 @@ export class WrapperManager {
                     recentIntent.set(uniqueKey, this.id);
                 }
                 return wrapped(...args);
-            },
-            "WRAPPER"
+            }
         );
     }
 }
