@@ -5,7 +5,7 @@ import { SettingsManager } from "./SettingsManager.ts";
 import { ActorHandler } from "./ActorHandler.ts";
 import { logConsole } from "./logger.ts"
 import * as Detectors from "./chatTypeDetectors/index.ts";
-import type { IActionDetails } from "./chatTypeDetectors/IActionDetector.ts";
+import type { IActionDetails, DetectedAction } from "./chatTypeDetectors/IActionDetector.ts";
 import { findCombatantByMessage, findCombatantById, findCombatantByTokenOrActor, getOpenApplications, isCurrentUserActiveGM, renderHandlebarsTemplate } from "./foundryCompat.ts";
 
 // Use a Template Literal Type for clarity, or just string
@@ -157,7 +157,7 @@ export class ChatManager {
         const data = this.runMessageDetectors(message);
         if (!data) return;
 
-        const isQuickenedEligible = ActorHandler.isActionQuickenedEligible(combatant, data.slug);
+        const isQuickenedEligible = data.isQuickenedEligible ?? ActorHandler.isActionQuickenedEligible(combatant, data.slug || "");
 
         // Check if we are updating an existing message or logging a new one
         const { ActionManager } = await import("./ActionManager.ts");
@@ -469,16 +469,7 @@ export class ChatManager {
         }
     }
 
-    private static runMessageDetectors(message: any): {
-        cost: number | IActionDetails['cost'],
-        slug: string,
-        label: string,
-        isReaction: boolean,
-        category: string,
-        isMapRelevant?: boolean,
-        mapProfile?: "standard" | "agile",
-        rank?: number
-    } | undefined {
+    private static runMessageDetectors(message: any): DetectedAction | undefined {
         const activeDetectors = [
             Detectors.HardIgnoreDetector,
             Detectors.SustainDetector,
@@ -511,7 +502,8 @@ export class ChatManager {
                     category: Detector.type,
                     isMapRelevant: details.isMapRelevant,
                     mapProfile: details.mapProfile,
-                    rank: details.rank
+                    rank: details.rank,
+                    isQuickenedEligible: details.isQuickenedEligible
                 };
             }
         }

@@ -24,13 +24,16 @@ export class AttackDetector {
         const cost = getCostFromMsgFlavor(message.flavor);
         const mapProfile: IActionDetails["mapProfile"] = message.item?.traits?.has?.("agile") ? "agile" : "standard";
 
+        const slug = flags.context?.action || getSlugFromMsgFlavor(htmlPool) || "attack";
+        const isStrike = slug.toLowerCase() === "strike";
+
         return {
             cost: isReaction ? 0 : (cost !== undefined ? cost : 1),
-            slug: flags.context?.action || getSlugFromMsgFlavor(htmlPool) || "attack",
+            slug,
             label: flags.context?.title || message.item?.name || getLabelFromMsgFlavor(htmlPool) || "Attack",
             isReaction,
             isMapRelevant: true,
-            isQuickenedEligible: true,
+            isQuickenedEligible: isStrike,
             mapProfile
         };
     }

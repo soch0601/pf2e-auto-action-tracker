@@ -11,6 +11,13 @@ export interface IActionDetails {
     isQuickenedEligible?: boolean
 }
 
+export interface DetectedAction extends IActionDetails {
+    cost: number | ActionCostFunction, // Ensure cost is not null here
+    slug: string,
+    label: string,
+    category: string
+}
+
 export interface IActionDetector {
 
     readonly id: string;
