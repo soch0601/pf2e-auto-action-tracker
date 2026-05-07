@@ -1,6 +1,6 @@
 import { SCOPE } from "./globals.ts";
 import type { ActorPF2e, ConditionPF2e, CombatantPF2e } from "module-helpers";
-import type { ActionLogEntry } from "./ActionManager.ts";
+import { ActionLogEntry, getEntryCost } from "./ActionLogTypes.ts";
 import { AddActionsLibrary } from "./addActionsData/AddActionsLibrary.ts";
 import type { ActionSlot } from "./addActionsData/types.d.ts";
 
@@ -188,32 +188,41 @@ export class ActorHandler {
     /**
      * Calculates which logged actions consume which slots, returning both the filled slots and any overspent actions.
      */
-    static allocateSlots(combatant: CombatantPF2e, logs: ActionLogEntry[], type: 'action' | 'reaction'): { slots: ActionSlot[], overspent: ActionLogEntry[] } {
+    static allocateSlots(combatant: CombatantPF2e, logs: readonly ActionLogEntry[], type: 'action' | 'reaction'): { slots: ActionSlot[], overspent: ActionLogEntry[] } {
         const slots = this.getSlots(combatant, type);
         const overspent: ActionLogEntry[] = [];
 
         // Filter logs by type (System drains also consume action slots)
         const typeLogs = logs.filter(l => l.type === type || (type === 'action' && l.type === 'system'));
-
-        for (const log of typeLogs) {
+        for (const logEntry of typeLogs) {
             // Reactions in PF2e often have cost: 0. We enforce they take 1 slot.
-            let costRemaining = type === 'reaction' ? Math.max(1, log.cost) : log.cost;
+            const costValue = getEntryCost(logEntry, logs);
+            let costRemaining = type === 'reaction' ? Math.max(1, costValue) : costValue;
 
             while (costRemaining > 0) {
                 const slotIndex = slots.findIndex(s => {
                     if (s.spentBy) return false;
                     if (s.isBase) return true;
-                    if (log.type === 'system' || log.msgId === 'System') return true;
+                    if (logEntry.type === 'system' || logEntry.msgId === 'System') return true;
 
-                    return s.definition?.allowedSlugs?.includes(log.slug || "") ?? false;
+                    const slug = logEntry.slug?.toLowerCase() || "";
+                    const isAllowed = s.definition?.allowedSlugs?.includes(slug) ?? false;
+                    
+                    // Extra slots (like Quickened) usually require the action to be eligible
+                    // unless it's a specific named allowed slug.
+                    if (s.definition?.slug === 'quickened') {
+                        return logEntry.isQuickenedEligible || isAllowed;
+                    }
+
+                    return isAllowed;
                 });
 
                 if (slotIndex !== -1) {
-                    slots[slotIndex].spentBy = log;
+                    slots[slotIndex].spentBy = logEntry;
                     costRemaining--;
                 } else {
-                    if (!overspent.includes(log)) {
-                        overspent.push(log);
+                    if (!overspent.includes(logEntry)) {
+                        overspent.push(logEntry);
                     }
                     costRemaining--;
                 }

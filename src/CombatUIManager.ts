@@ -1,4 +1,5 @@
-import { ActionManager, ActionLogEntry } from "./ActionManager";
+import { ActionManager } from "./ActionManager";
+import { ActionLogEntry, getForceBarrageInfo } from "./ActionLogTypes";
 import { SCOPE } from "./globals";
 import { ActorPF2e, CombatantPF2e } from "module-helpers";
 import { ActorHandler } from "./ActorHandler";
@@ -63,7 +64,7 @@ export class CombatUIManager {
             const visibilityKey = message
                 ? `${message.visible ? 1 : 0}:${message.blind ? 1 : 0}:${message.whisper.join(",")}:${message.author?.id ?? ""}`
                 : "";
-            return { ...entry, visibilityKey };
+            return { ...entry, cost: ActionManager.getEntryCost(entry, flattenedLog), visibilityKey };
         });
         const renderKey = getTrackerRenderKey({
             mode: mount.mode,
@@ -99,7 +100,7 @@ export class CombatUIManager {
                     isGold: !slot.isBase,
                     isOver: false,
                     subIdx,
-                    totalCost: slot.spentBy.cost
+                    totalCost: ActionManager.getEntryCost(slot.spentBy)
                 });
             } else {
                 pipsToRender.push({
@@ -115,14 +116,15 @@ export class CombatUIManager {
 
         for (const entry of overspentActions) {
             const assignedPips = pipsToRender.filter(p => p.entry === entry).length;
-            const remainingCost = entry.cost - assignedPips;
+            const totalCost = ActionManager.getEntryCost(entry);
+            const remainingCost = totalCost - assignedPips;
             for (let i = 0; i < remainingCost; i++) {
                 pipsToRender.push({
                     entry,
                     isGold: false,
                     isOver: true,
                     subIdx: assignedPips + i,
-                    totalCost: entry.cost
+                    totalCost: totalCost
                 });
             }
         }
@@ -255,7 +257,8 @@ export class CombatUIManager {
                 if (pip.slot && pip.slot.definition) suffix = ` (${pip.slot.definition.name})`;
                 else if (isGold) suffix = ` (Bonus Action)`;
 
-                span.dataset.tooltip = `Used: ${displayLabel}${suffix}${isOver ? ' (Overspent)' : ''}`;
+                let fbInfo = getForceBarrageInfo(entry, flattenedLog);
+                span.dataset.tooltip = `Used: ${displayLabel}${suffix}${isOver ? ' (Overspent)' : ''}${fbInfo ? ` - ${fbInfo}` : ''}`;
 
                 if (entry.type === "system" || entry.msgId === "System") {
                     span.style.cursor = "default";

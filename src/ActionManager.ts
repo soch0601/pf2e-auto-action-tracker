@@ -4,33 +4,15 @@ import { SettingsManager } from "./SettingsManager.ts";
 import { ActorHandler } from "./ActorHandler.ts";
 import type { ActorPF2e, CombatantPF2e } from "module-helpers";
 import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
-import type { ActiveActivityState, ActionModifier } from "./complexActions/types.d.ts";
 import { getCurrentMapStateFromLog } from "./mapTracker.ts";
 import { isCurrentUserActiveGM } from "./foundryCompat.ts";
-
-export interface ActionLogEntry {
-    cost: number;
-    msgId: string;
-    label: string;
-    type: 'action' | 'reaction' | 'system' | 'bonus';
-    slug?: string;
-    isQuickenedEligible: boolean;
-    isMapRelevant?: boolean;
-    mapProfile?: "standard" | "agile";
-    actionModifiers?: ActionModifier[];
-    sustainItem?: { id: string, name: string };
-    ComplexActionState?: ActiveActivityState;
-    category: string;
-    linkedMessages: linkedRolls[];
-    distance?: number;
-}
-
-export interface linkedRolls {
-    type: 'damage' | 'attack';
-    msgId: string;
-}
+import { ActionLogEntry, getEntryCost } from "./ActionLogTypes.ts";
 
 export class ActionManager {
+    static getEntryCost(entry: ActionLogEntry, log?: readonly ActionLogEntry[]): number {
+        return getEntryCost(entry, log);
+    }
+
 
     // Buffer: key is `${combatantId}-${msgId}`
     private static _sustainBuffer = new Map<string, { id: string, name: string }>();
@@ -237,7 +219,7 @@ export class ActionManager {
                 // Sequence completed/ejected, reset history
                 const { MovementManager } = await import("./MovementManager.ts");
                 if (tokenId) MovementManager.resetCapturedHistory(tokenId);
-            } else if (action.cost > 0) {
+            } else if (this.getEntryCost(action, currentLog) > 0) {
                 // Sequence Broken
                 openEntry.ComplexActionState = ComplexActionEngine.complete(openEntry.ComplexActionState, action.msgId);
                 const { ChatManager } = await import("./ChatManager.ts");
@@ -508,8 +490,8 @@ export class ActionManager {
         if (!isCurrentUserActiveGM()) return;
 
         const c = combatant as any;
-        const actionsSpent = newLogs.filter(e => e.type !== 'reaction').reduce((sum, e) => sum + (e.cost || 0), 0);
-        const reactionsSpent = newLogs.filter(e => e.type === 'reaction').reduce((sum, e) => sum + (e.cost || 0), 0);
+        const actionsSpent = newLogs.filter(e => e.type !== 'reaction').reduce((sum, e) => sum + this.getEntryCost(e, newLogs), 0);
+        const reactionsSpent = newLogs.filter(e => e.type === 'reaction').reduce((sum, e) => sum + this.getEntryCost(e, newLogs), 0);
 
         const hasQuickenedSnapshot = ActorHandler.hasQuickenedSnapshot(combatant);
 
@@ -642,7 +624,7 @@ export class ActionManager {
      */
     private static async checkUnderSpend(combatant: CombatantPF2e, log: readonly ActionLogEntry[]) {
         const c = combatant as any;
-        const spent = log.filter(e => e.type === 'action' || e.type === 'system').reduce((acc, e) => acc + e.cost, 0);
+        const spent = log.filter(e => e.type === 'action' || e.type === 'system').reduce((acc, e) => acc + this.getEntryCost(e, log), 0);
         const actor = c.actor as ActorPF2e | undefined;
         if (!actor) return;
 
@@ -667,7 +649,7 @@ export class ActionManager {
         const { overspent } = ActorHandler.allocateSlots(combatant, newLogs, 'action');
 
         const actionLog = newLogs.filter(e => e.type !== 'reaction');
-        const rawTotalSpent = actionLog.reduce((sum, e) => sum + (e.cost || 0), 0);
+        const rawTotalSpent = actionLog.reduce((sum, e) => sum + this.getEntryCost(e, newLogs), 0);
 
         if (overspent.length > 0) {
             const reason = `Spent actions that exceeded available slots (${overspent.map(o => o.label).join(', ')}).`;

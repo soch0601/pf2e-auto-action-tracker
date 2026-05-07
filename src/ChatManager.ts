@@ -1,4 +1,4 @@
-import type { ActionLogEntry, linkedRolls } from "./ActionManager.ts";
+import type { ActionLogEntry } from "./ActionLogTypes.ts";
 import { SCOPE } from "./globals.ts";
 import type { ActorPF2e, ChatMessagePF2e, CombatantPF2e } from "module-helpers";
 import { SettingsManager } from "./SettingsManager.ts";
@@ -176,9 +176,10 @@ export class ChatManager {
 
         if (log) {
             const update: Partial<ActionLogEntry> = {
-                cost: data.cost,
+                cost: data.cost as any,
                 label: data.label,
                 isQuickenedEligible,
+                rank: data.rank,
                 ...mapMetadata
             };
             await ActionManager.editAction(combatant, message.id, update);
@@ -189,7 +190,7 @@ export class ChatManager {
 
             // 2. Add the action
             await ActionManager.addAction(combatant, {
-                cost: data.cost,
+                cost: data.cost as any,
                 msgId: message.id,
                 label: data.label,
                 type: type,
@@ -197,7 +198,8 @@ export class ChatManager {
                 isQuickenedEligible,
                 ...mapMetadata,
                 category: data.category,
-                linkedMessages: []
+                linkedMessages: [],
+                rank: data.rank
             });
         }
     }
@@ -468,13 +470,14 @@ export class ChatManager {
     }
 
     private static runMessageDetectors(message: any): {
-        cost: number,
+        cost: number | IActionDetails['cost'],
         slug: string,
         label: string,
         isReaction: boolean,
         category: string,
         isMapRelevant?: boolean,
-        mapProfile?: "standard" | "agile"
+        mapProfile?: "standard" | "agile",
+        rank?: number
     } | undefined {
         const activeDetectors = [
             Detectors.HardIgnoreDetector,
@@ -507,7 +510,8 @@ export class ChatManager {
                     isReaction: details.isReaction,
                     category: Detector.type,
                     isMapRelevant: details.isMapRelevant,
-                    mapProfile: details.mapProfile
+                    mapProfile: details.mapProfile,
+                    rank: details.rank
                 };
             }
         }

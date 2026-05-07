@@ -30,6 +30,7 @@ export class AttackDetector {
             label: flags.context?.title || message.item?.name || getLabelFromMsgFlavor(htmlPool) || "Attack",
             isReaction,
             isMapRelevant: true,
+            isQuickenedEligible: true,
             mapProfile
         };
     }

@@ -1,6 +1,6 @@
 import { SPECIAL_ACTIVITIES } from "./library.ts";
 import type { ActiveActivityState, LeafState, OperatorNode, ActionNode, GroupNode } from "./types.d.ts";
-import type { ActionLogEntry } from "../ActionManager.ts";
+import { ActionLogEntry, getEntryCost } from "../ActionLogTypes.ts";
 import { MovementManager } from "../MovementManager.ts";
 import type { CombatantPF2e } from "module-helpers";
 
@@ -51,7 +51,7 @@ export class ComplexActionEngine {
 
     static evaluate(
         state: ActiveActivityState,
-        incoming: { type: string, cost?: number, action: ActionLogEntry, slug: string },
+        incoming: { type: string, cost?: number | ((entry: ActionLogEntry) => number), action: ActionLogEntry, slug: string },
         combatant: CombatantPF2e
     ) {
         const definition = SPECIAL_ACTIVITIES.find(a => a.slug === state.activitySlug);
@@ -145,7 +145,8 @@ export class ComplexActionEngine {
             // Standard edit for strikes/rolls
             leaf.childActions[actionIndex] = { ...leaf.childActions[actionIndex], ...updates };
             const newCost = leaf.childActions[actionIndex].cost;
-            leaf.satisfied = newCost >= (leaf.minCost ?? 0) && newCost <= (leaf.maxCost ?? 1000);
+            const costValue = typeof newCost === 'function' ? (newCost as any)(leaf.childActions[actionIndex]) : (newCost || 0);
+            leaf.satisfied = costValue >= (leaf.minCost ?? 0) && costValue <= (leaf.maxCost ?? 1000);
         }
 
         // Sync the ordered list
@@ -425,7 +426,7 @@ export class ComplexActionEngine {
     private static _tryClaimGroup(
         nodes: (ActionNode | GroupNode | OperatorNode)[],
         state: ActiveActivityState,
-        incoming: { type: string, cost?: number, action: ActionLogEntry, slug: string },
+        incoming: { type: string, cost?: number | ((entry: ActionLogEntry) => number), action: ActionLogEntry, slug: string },
         path: number[],
         combatant: CombatantPF2e
     ): { claimed: boolean, delegated: boolean } {
@@ -463,7 +464,7 @@ export class ComplexActionEngine {
     private static _tryClaim(
         node: ActionNode | GroupNode | OperatorNode,
         state: ActiveActivityState,
-        incoming: { type: string, cost?: number, action: ActionLogEntry, slug: string },
+        incoming: { type: string, cost?: number | ((entry: ActionLogEntry) => number), action: ActionLogEntry, slug: string },
         path: number[],
         combatant: CombatantPF2e
     ): { claimed: boolean, delegated: boolean } {
@@ -568,9 +569,9 @@ export class ComplexActionEngine {
             const subtypeMatch = !leaf.subtype || leaf.subtype === incoming.slug;
 
             if (subtypeMatch) {
-                const incomingCost = incoming.cost || 1;
+                const incomingCostValue = typeof incoming.cost === 'function' ? incoming.cost(incoming.action) : (incoming.cost || 1);
 
-                if (this._actionMeetsCostReqs(leaf, incomingCost) && this._actionMeetsOccurrencesReqs(leaf)) {
+                if (this._actionMeetsCostReqs(leaf, incomingCostValue) && this._actionMeetsOccurrencesReqs(leaf)) {
                     incoming.action.actionModifiers = leaf.modifiers;
                     leaf.childActions.push(incoming.action);
 
@@ -820,5 +821,12 @@ export class ComplexActionEngine {
             maxAllowed,
             isOverflow: cost > maxAllowed
         };
+    }
+
+    private static _getCost(action: ActionLogEntry): number {
+        // Note: ComplexActionEngine currently doesn't pass the full log here,
+        // so cross-action dynamic costs (like Quickened Casting) won't apply 
+        // to actions nested inside an activity yet.
+        return getEntryCost(action);
     }
 }

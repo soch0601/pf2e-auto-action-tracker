@@ -1,10 +1,14 @@
+export type ActionCostFunction = (entry: any) => number;
+
 export interface IActionDetails {
-    cost: number | null,
+    cost: number | null | ActionCostFunction,
     slug: string | null,
     label: string | null,
     isReaction: boolean,
     isMapRelevant?: boolean,
-    mapProfile?: "standard" | "agile"
+    mapProfile?: "standard" | "agile",
+    rank?: number,
+    isQuickenedEligible?: boolean
 }
 
 export interface IActionDetector {

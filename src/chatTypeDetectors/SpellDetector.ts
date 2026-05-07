@@ -58,6 +58,24 @@ export class SpellDetector {
         const label = item?.name || getLabelFromMsgFlavor(htmlPool) || "Spell Cast";
         const slug = item?.slug || getSlugFromMsgFlavor(htmlPool) || "spell-cast";
 
+        // PF2e system stores spell rank in various places depending on the message type
+        const rank = flags.origin?.castRank
+            || flags.casting?.level
+            || flags.context?.level
+            || item?.level
+            || item?.system?.level?.value
+            || 1;
+
+        if (slug === 'force-barrage') {
+            return {
+                cost: (entry: any) => 0, // Placeholder, will be re-hydrated later as storing in DB dehydrates
+                slug,
+                label,
+                isReaction,
+                rank
+            };
+        }
+
         // 2. Cost Calculation - Priority 1: Variable Action Flags
         const variableActionFlag = (flags.context?.options || []).find((opt: string) =>
             opt.startsWith("num-actions:") || opt.startsWith("item:cast:actions:")
@@ -65,12 +83,12 @@ export class SpellDetector {
 
         if (variableActionFlag) {
             const parsed = parseInt(variableActionFlag.split(":").pop() || "0");
-            return { cost: isNaN(parsed) ? 0 : parsed, slug, label, isReaction };
+            return { cost: isNaN(parsed) ? 0 : parsed, slug, label, isReaction, rank };
         }
 
         // 3. Cost Calculation - Priority 2: DOM/Flavor Sniffing
         const tempCost = getCostFromMsgFlavor(htmlPool);
-        if (tempCost) return { cost: tempCost, slug, label, isReaction };
+        if (tempCost) return { cost: tempCost, slug, label, isReaction, rank };
 
         // 4. Cost Calculation - Final Fallback: Item System Data
         let cost = 2;
@@ -82,7 +100,7 @@ export class SpellDetector {
             cost = isNaN(parsed) ? 2 : parsed;
         }
 
-        return { cost, slug, label, isReaction };
+        return { cost, slug, label, isReaction, rank };
     }
 }
 
