@@ -65,6 +65,7 @@ export interface ActiveActivityState {
     activitySlug: string;
     parentMessageId: string;
     completedBy?: string | undefined;
+    combinedDamageMessageId?: string;
     // Flat map of leaf states for quick lookup/revert
     leaves: Record<string, LeafState>;
     orderedActivityChildActions: ActionLogEntry[];

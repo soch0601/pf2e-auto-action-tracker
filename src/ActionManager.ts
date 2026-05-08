@@ -445,7 +445,16 @@ export class ActionManager {
 
         if (entry) {
             const updatedLinkedRolls = entry.linkedMessages.concat({ type: 'damage', msgId: damageMsgId });
-            this.editAction(combatant, attackMsgId, { linkedMessages: updatedLinkedRolls });
+            await this.editAction(combatant, attackMsgId, { linkedMessages: updatedLinkedRolls });
+
+            const updatedParent = this.getFlattenedActions(combatant).find(e => 
+                e.ComplexActionState && ComplexActionEngine.getAllChildMessageIds(e.ComplexActionState).includes(attackMsgId)
+            );
+
+            if (updatedParent && updatedParent.ComplexActionState) {
+                const { DamageCombinator } = await import("./damageCombinator.ts");
+                await DamageCombinator.processDamageCombination(combatant, updatedParent, damageMsgId);
+            }
         }
     }
 

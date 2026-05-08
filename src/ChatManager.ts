@@ -40,6 +40,31 @@ export class ChatManager {
 
                 // Note: If the dialog opens, the render hook (Step 2) will 
                 // handle moving this ID from the queue to the Dialog instance.
+            } else if (btn.matches('[data-action="toggle-crit-immune"]')) {
+                const chatMessage = btn.closest('.chat-message');
+                const originMsgId = chatMessage?.getAttribute('data-message-id');
+                if (!originMsgId) return;
+
+                const message = game.messages.get(originMsgId);
+                if (!message) return;
+
+                const flags = message.flags?.[SCOPE];
+                if (!flags || !flags.isCombinedDamage) return;
+
+                const currentCritImmuneState = !!flags.isCritImmune;
+                const originatingActionId = flags.originatingActionId as string;
+
+                const combatant = findCombatantByMessage((game as any).combat, message);
+                if (!combatant || !originatingActionId) return;
+
+                const { ActionManager } = await import("./ActionManager.ts");
+                const entry = ActionManager.getActionById(combatant, originatingActionId);
+
+                if (entry && entry.ComplexActionState) {
+                    const { DamageCombinator } = await import("./damageCombinator.ts");
+                    // Pass the INVERTED state to processDamageCombination
+                    await DamageCombinator.processDamageCombination(combatant, entry, undefined, !currentCritImmuneState);
+                }
             }
         }, { capture: true });
     }
