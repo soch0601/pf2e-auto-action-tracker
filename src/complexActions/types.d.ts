@@ -7,7 +7,7 @@ export type ActionSlug = 'strike' | 'move' | 'reload' | 'draw' | 'cast' | 'skill
 export type OperatorValue = 'AND' | 'OR' | 'THEN' | 'XOR';
 
 /** Rule-bending flags for specific action resolution */
-export type ActionModifier = 'combineDamage' | 'deferMAP' | 'manualFinish' | 'fixedMAP' | 'allowInterruption';
+export type ActionModifier = 'combineDamage' | 'deferMAP' | 'manualFinish' | 'fixedMAP' | 'allowInterruption' | 'mapIncrease2';
 
 export type ActionType = "move" | "attack" | "spell" | "consumable" | "skill" | "spell" | "action" | "interact";
 

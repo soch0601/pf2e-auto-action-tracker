@@ -103,6 +103,13 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         ]
     },
     {
+        name: 'Battle Medicine',
+        slug: 'battle-medicine',
+        childActions: [
+            { type: 'ACTION', properties: { type: 'skill', subtype: 'medicine' } }
+        ]
+    },
+    {
         name: 'Black Powder Blaze',
         slug: 'black-powder-blaze',
         childActions: [
@@ -1020,6 +1027,13 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         ]
     },
     {
+        name: 'Penetrating Shot',
+        slug: 'penetrating-shot',
+        childActions: [
+            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', modifiers: ['mapIncrease2'] } }
+        ]
+    },
+    {
         name: 'Pierce the Eye',
         slug: 'pierce-the-eye',
         childActions: [
@@ -1171,6 +1185,13 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         slug: 'ruthless-orator',
         childActions: [
             { type: 'ACTION', properties: { type: 'skill', subtype: 'performance' } },
+        ]
+    },
+    {
+        name: 'Sacred Defense',
+        slug: 'sacred-defense',
+        childActions: [
+            { type: 'ACTION', properties: { type: 'skill', subtype: 'religion' } },
         ]
     },
     {
@@ -1541,6 +1562,13 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         ]
     },
     {
+        name: 'United Assault',
+        slug: 'united-assault',
+        childActions: [
+            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike' } }
+        ]
+    },
+    {
         name: 'Viper Strike',
         slug: 'viper-strike',
         childActions: [
@@ -1604,13 +1632,5 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
             { type: 'OPERATOR', value: 'AND' },
             { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 1, maxOccurrences: 2 } }
         ]
-    },
-    // TODO: Figure out how to include damage rolls, and figure out how to implement the cost override
-    // {
-    //     name: 'Force Barrage',
-    //     slug: 'force-barrage',
-    //     childActions: [
-    //         { type: 'ACTION', properties: { type: 'spell', minOccurrences: 1, maxOccurrences: 3 } }
-    //     ]
-    // },
+    }
 ]

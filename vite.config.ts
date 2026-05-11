@@ -15,6 +15,9 @@ export default defineConfig({
         sourcemap: true,
         // We remove the assetFileNames logic because 'public' handles the CSS now
         rollupOptions: {
+            output: {
+                inlineDynamicImports: true,
+            },
             external: [],
             onwarn(warning, defaultHandler) {
                 if (warning.message.includes("is dynamically imported by") && warning.message.includes("but also statically imported by")) {

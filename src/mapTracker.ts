@@ -1,4 +1,4 @@
-import type { ActionLogEntry } from "./ActionManager.ts";
+import type { ActionLogEntry } from "./ActionLogTypes";
 
 export function isMapRelevantAction(entry: Partial<ActionLogEntry>): boolean {
     return entry.isMapRelevant === true && entry.type !== "reaction" && !entry.actionModifiers?.includes("deferMAP");
@@ -36,11 +36,19 @@ export function getCurrentMapStateFromLog(
 
         const isComplete = !!complexState.completedBy;
         const parent = entry.isMapRelevant ? [entry] : [];
-        const children = (complexState.orderedActivityChildActions ?? []).map(child => {
+        const children = (complexState.orderedActivityChildActions ?? []).flatMap(child => {
+            if (child.actionModifiers.includes("mapIncrease2")) {
+                // Return two entries to simulate double MAP in the calculation
+                const secondEntry = {
+                    ...child,
+                    actionModifiers: child.actionModifiers.filter((modifier: string) => modifier !== "mapIncrease2"),
+                };
+                return [secondEntry, child];
+            }
             if (!isComplete || !child.actionModifiers?.includes("deferMAP")) return child;
             return {
                 ...child,
-                actionModifiers: child.actionModifiers.filter(modifier => modifier !== "deferMAP"),
+                actionModifiers: child.actionModifiers.filter((modifier: string) => modifier !== "deferMAP"),
             };
         });
 
