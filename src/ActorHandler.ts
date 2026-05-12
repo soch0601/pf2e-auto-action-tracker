@@ -1,6 +1,6 @@
 import { SCOPE } from "./globals.ts";
 import type { ActorPF2e, ConditionPF2e, CombatantPF2e } from "module-helpers";
-import { ActionLogEntry, getEntryCost } from "./ActionLogTypes.ts";
+import { type ActionLogEntry, getEntryCost } from "./ActionLogTypes.ts";
 import { AddActionsLibrary } from "./addActionsData/AddActionsLibrary.ts";
 import type { ActionSlot } from "./addActionsData/types.d.ts";
 

@@ -5,16 +5,33 @@ export class SettingsManager {
     // Register our module settings
     static registerSettings() {
         const settings = (game as any).settings;
+        const isGM = (game as any).user?.isGM ?? true; // Safety check
 
-        settings.register(SCOPE, "headerWhispers", {
-            name: "--- WHISPERS ---",
-            hint: "Configure automated economy and sustain alerts.",
-            scope: "client"
+        // Helper to get the correct hint based on role
+        const getHint = (settingKey: string, defaultKey: string) => {
+            const base = `PF2E_ACTION_TRACKER.Settings.${settingKey}`;
+            const roleKey = isGM ? `${base}.GMHint` : `${base}.PlayerHint`;
+            return (game as any).i18n.has(roleKey) ? roleKey : defaultKey;
+        };
+
+        settings.register(SCOPE, "settingsVersion", {
+            scope: "world",
+            config: false,
+            type: Number,
+            default: 0
+        });
+
+        settings.register(SCOPE, "headerAlerts", {
+            name: "PF2E_ACTION_TRACKER.Settings.Header.Alerts",
+            scope: "client",
+            config: true,
+            type: Boolean, // Dummy type
+            default: false
         });
 
         settings.register(SCOPE, "whisperOverspend", {
-            name: "Alert on Over-spending on actions",
-            hint: "Whisper player/GM when spent actions exceed available actions.",
+            name: "PF2E_ACTION_TRACKER.Settings.WhisperOverspend.Name",
+            hint: getHint("WhisperOverspend", "PF2E_ACTION_TRACKER.Settings.WhisperOverspend.Hint"),
             scope: "client",
             config: true,
             type: Boolean,
@@ -22,8 +39,8 @@ export class SettingsManager {
         });
 
         settings.register(SCOPE, "whisperReactionOverspend", {
-            name: "Alert on Over-spending on reactions",
-            hint: "Whisper player/GM when spent reactions exceed available reactions.",
+            name: "PF2E_ACTION_TRACKER.Settings.WhisperReactionOverspend.Name",
+            hint: getHint("WhisperReactionOverspend", "PF2E_ACTION_TRACKER.Settings.WhisperReactionOverspend.Hint"),
             scope: "client",
             config: true,
             type: Boolean,
@@ -31,8 +48,8 @@ export class SettingsManager {
         });
 
         settings.register(SCOPE, "whisperUnderspend", {
-            name: "Alert on Under-spending",
-            hint: "Whisper player/GM when ending turn with actions remaining.",
+            name: "PF2E_ACTION_TRACKER.Settings.WhisperUnderspend.Name",
+            hint: getHint("WhisperUnderspend", "PF2E_ACTION_TRACKER.Settings.WhisperUnderspend.Hint"),
             scope: "client",
             config: true,
             type: Boolean,
@@ -40,8 +57,8 @@ export class SettingsManager {
         });
 
         settings.register(SCOPE, "whisperSustain", {
-            name: "Remind to Sustain",
-            hint: "Whisper player at turn-start if they have active effects to Sustain.",
+            name: "PF2E_ACTION_TRACKER.Settings.WhisperSustain.Name",
+            hint: getHint("WhisperSustain", "PF2E_ACTION_TRACKER.Settings.WhisperSustain.Hint"),
             scope: "client",
             config: true,
             type: Boolean,
@@ -49,8 +66,25 @@ export class SettingsManager {
         });
 
         settings.register(SCOPE, "whisperComplexAction", {
-            name: "Alert on Complex Action Break",
-            hint: "Whisper player/GM when a complex action has been broken without completing.",
+            name: "PF2E_ACTION_TRACKER.Settings.WhisperComplexAction.Name",
+            hint: getHint("WhisperComplexAction", "PF2E_ACTION_TRACKER.Settings.WhisperComplexAction.Hint"),
+            scope: "client",
+            config: true,
+            type: Boolean,
+            default: false
+        });
+
+        settings.register(SCOPE, "undoAlert", {
+            name: "PF2E_ACTION_TRACKER.Settings.UndoAlert.Name",
+            hint: getHint("UndoAlert", "PF2E_ACTION_TRACKER.Settings.UndoAlert.Hint"),
+            scope: "client",
+            config: true,
+            type: Boolean,
+            default: true
+        });
+
+        settings.register(SCOPE, "headerInterface", {
+            name: "PF2E_ACTION_TRACKER.Settings.Header.Interface",
             scope: "client",
             config: true,
             type: Boolean,
@@ -58,8 +92,8 @@ export class SettingsManager {
         });
 
         settings.register(SCOPE, "showCoreTracker", {
-            name: "Show Core Combat Tracker UI",
-            hint: "Display action tracking controls in the Foundry combat tracker.",
+            name: "PF2E_ACTION_TRACKER.Settings.ShowCoreTracker.Name",
+            hint: "PF2E_ACTION_TRACKER.Settings.ShowCoreTracker.Hint",
             scope: "client",
             config: true,
             type: Boolean,
@@ -67,31 +101,104 @@ export class SettingsManager {
         });
 
         settings.register(SCOPE, "showPf2eHudTracker", {
-            name: "Show PF2e HUD Tracker UI",
-            hint: "Display action tracking controls in the PF2e HUD tracker when it is present.",
+            name: "PF2E_ACTION_TRACKER.Settings.ShowPf2eHudTracker.Name",
+            hint: "PF2E_ACTION_TRACKER.Settings.ShowPf2eHudTracker.Hint",
             scope: "client",
             config: true,
             type: Boolean,
             default: true
         });
 
-        settings.register(SCOPE, "undoAlert", {
-            name: "Alert on Move undo causes Action Undo",
-            hint: "Whisper player/GM when an undo (Ctrl + Z) forces undo of a non-movement action (like strike).",
-            scope: "client",
-            config: true,
-            type: Boolean,
-            default: true
-        });
-
-
-        settings.register(SCOPE, "debugMode", {
-            name: "Debug Mode?",
-            hint: "Turn on for extra debugging logs in console.",
+        settings.register(SCOPE, "headerAdvanced", {
+            name: "PF2E_ACTION_TRACKER.Settings.Header.Advanced",
             scope: "world",
             config: true,
             type: Boolean,
             default: false
+        });
+
+        settings.register(SCOPE, "debugMode", {
+            name: "PF2E_ACTION_TRACKER.Settings.DebugMode.Name",
+            hint: "PF2E_ACTION_TRACKER.Settings.DebugMode.Hint",
+            scope: "world",
+            config: true,
+            type: Boolean,
+            default: false
+        });
+    }
+
+    /**
+     * Handles migration of settings between versions
+     */
+    static async migrateSettings() {
+        if (!(game as any).user.isGM) return;
+
+        const currentVersion = this.get("settingsVersion") || 0;
+        const targetVersion = 1;
+
+        if (currentVersion >= targetVersion) return;
+
+        console.log(`Action Tracker | Migrating settings from version ${currentVersion} to ${targetVersion}`);
+
+        // Version 1 Migration: Initial setup for versioning
+        if (currentVersion < 1) {
+            // No structural changes yet, just setting the version
+            await (game as any).settings.set(SCOPE, "settingsVersion", 1);
+        }
+
+        console.log(`Action Tracker | Settings migration to version ${targetVersion} complete.`);
+    }
+
+    /**
+     * Custom styling for the Module Settings tab
+     */
+    static onRenderSettingsConfig(_app: any, html: any) {
+        const $html = $(html);
+        const moduleTab = $html.find(`[data-tab="${SCOPE}"], [data-tab*="action-tracker"]`);
+        if (!moduleTab.length) return;
+
+        // Find our header settings and style them
+        const headers = ["headerAlerts", "headerInterface", "headerAdvanced"];
+
+        headers.forEach(headerKey => {
+            const input = moduleTab.find(`input[name="${SCOPE}.${headerKey}"]`);
+            const settingDiv = input.closest(".form-group");
+            if (settingDiv.length) {
+                settingDiv.addClass("action-tracker-setting-header");
+                settingDiv.find(".form-fields").remove();
+            }
+        });
+
+        // Make the whole row clickable to toggle checkboxes
+        moduleTab.find(".form-group:not(.action-tracker-setting-header)").on("click", (event) => {
+            if ($(event.target).is("input, label, a, button")) return;
+            const checkbox = $(event.currentTarget).find('input[type="checkbox"]');
+            if (checkbox.length) {
+                checkbox.prop("checked", !checkbox.prop("checked")).trigger("change");
+            }
+        });
+
+        // Dynamic Role-based Hints (Final fallback if registration was too early)
+        const isGM = (game as any).user?.isGM ?? true;
+        const groups = moduleTab.find(".form-group");
+
+        groups.each((_i: number, el: HTMLElement) => {
+            const $group = $(el);
+            const $notes = $group.find(".notes, .hint"); // Support both V11 (.notes) and V12 (.hint)
+
+            const input = $group.find('input, select').first();
+            const name = input.attr('name');
+
+            if (!name || !$notes.length) return;
+
+            const settingKey = name.replace(`${SCOPE}.`, "");
+            const capitalizedKey = settingKey.charAt(0).toUpperCase() + settingKey.slice(1);
+            const baseI18nKey = `PF2E_ACTION_TRACKER.Settings.${capitalizedKey}`;
+            const roleKey = isGM ? `${baseI18nKey}.GMHint` : `${baseI18nKey}.PlayerHint`;
+
+            if ((game as any).i18n.has(roleKey)) {
+                $notes.text((game as any).i18n.localize(roleKey));
+            }
         });
     }
 

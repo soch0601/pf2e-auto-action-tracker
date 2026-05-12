@@ -37,7 +37,7 @@ This mode is designed for compatibility with modules that disable or manipulate 
 | Feature | Native Mode | Captured Mode |
 | :--- | :--- | :--- |
 | **Trigger** | Default | Module Conflicts (e.g. Toolbelt) |
-| **Ctrl + Z Support** | ✅ Yes | ❌ No (Manual deletion required) |
+| **Ctrl + Z Support** | Yes | No (Manual deletion required) |
 | **Distance Calculation** | Cumulative (Total Turn Distance) | Delta-based (Added to current action) |
 | **Conflict Risk** | Higher with history-altering mods | Very Low |
 

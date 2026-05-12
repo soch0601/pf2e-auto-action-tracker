@@ -11,12 +11,19 @@
   "scripts": [],
   "description": "Automates tracking of the action economy for Pathfinder 2e.",
   "manifest": "https://github.com/soch0601/pf2e-auto-action-tracker/releases/latest/download/module.json",
-  "download": "https://github.com/soch0601/pf2e-auto-action-tracker/releases/download/v0.15.0/pf2e-auto-action-tracker.zip",
-  "version": "0.15.0",
+  "download": "https://github.com/soch0601/pf2e-auto-action-tracker/releases/download/v0.15.2/pf2e-auto-action-tracker.zip",
+  "version": "0.15.2",
   "authors": [
     {
       "name": "Warder",
       "discord": "warder"
+    }
+  ],
+  "languages": [
+    {
+      "lang": "en",
+      "name": "English",
+      "path": "lang/en.json"
     }
   ],
   "compatibility": {

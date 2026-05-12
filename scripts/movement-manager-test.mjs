@@ -112,7 +112,7 @@ ActorHandler.hasQuickenedSnapshot = () => false;
 globalThis.PF2E_AUTO_ACTION_TRACKER = { GlobalConfig };
 
 async function runTests() {
-    console.log("🏃 Running MovementManager Integration Tests...\n");
+    console.log("Running MovementManager Integration Tests...\n");
 
     for (const mode of [{ name: 'Native (!noHistoryConflict)', value: false }, { name: 'Captured (noHistoryConflict)', value: true }]) {
         console.log(`\nPF2E Auto Action Tracker | TEST | Running Suite for ${mode.name} Mode`);
@@ -196,11 +196,11 @@ async function runTests() {
             }
             const coordList = tokenHistory.map(p => ({ x: p.x, y: p.y }));
             mockToken._movementHistory = coordList;
-            
+
             const lastPos = coordList[coordList.length - 1] || { x: 0, y: 0 };
             console.log(`Action Tracker | TEST | undoToken | History: ${JSON.stringify(coordList)}`);
             await MovementManager.handleTokenUpdate(mockTokenDoc, { x: lastPos.x, y: lastPos.y }, { diff: true });
-            
+
             mockToken.x = lastPos.x;
             mockToken.y = lastPos.y;
         }
@@ -211,7 +211,7 @@ async function runTests() {
         let log = ActualActionManager.getActions(mockCombatant);
         assert.equal(log.length, 1);
         assert.equal(log[0].distance, 10);
-        console.log("✅ Scenario 1 passed");
+        console.log("Scenario 1 passed");
 
         // Scenario 2: Undo movement (Native mode)
         if (!mode.value) {
@@ -221,7 +221,7 @@ async function runTests() {
             log = ActualActionManager.getActions(mockCombatant);
             console.log('log: ', log);
             assert.equal(log.length, 0, "Log should be empty after undoing the only move");
-            console.log("✅ Scenario 2 passed");
+            console.log("Scenario 2 passed");
         }
 
         // Scenario 11: Multi-segment with non-move (Native)
@@ -240,7 +240,7 @@ async function runTests() {
             await MovementManager.processMovementFromData(mockCombatant, mockToken, { coordList: [], recursiveCall: false, mode: 'native' });
             log = ActualActionManager.getActions(mockCombatant);
             assert.equal(log.length, 0, "Undo 2: Everything should be gone");
-            console.log("✅ Scenario 11 passed");
+            console.log("Scenario 11 passed");
         }
 
         // Scenario 12: Move -> Strike -> Move -> Undo (Native)
@@ -272,11 +272,11 @@ async function runTests() {
             await MovementManager.processMovementFromData(mockCombatant, mockToken, { coordList: [], recursiveCall: false, mode: 'native' });
             log = ActualActionManager.getActions(mockCombatant);
             assert.equal(log.length, 0, "Everything gone");
-            console.log("✅ Scenario 12 passed");
+            console.log("Scenario 12 passed");
         }
     }
 
-    console.log("\n🎉 All MovementManager tests passed!");
+    console.log("\n All MovementManager tests passed!");
 
     // --- RESTORE ORIGINALS ---
     ActualActionManager.addAction = originalAddAction;
@@ -293,6 +293,6 @@ async function runTests() {
 }
 
 await runTests().catch(e => {
-    console.error("❌ movement-manager-test.mjs failed!");
+    console.error("movement-manager-test.mjs failed!");
     throw e;
 });

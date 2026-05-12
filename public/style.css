@@ -277,24 +277,194 @@
   opacity: 0.9;
 }
 
-/* Settings Styling */
-div.form-group[data-setting-id^="pf2e-auto-action-tracker.header"] {
-  border-top: 2px solid #7a7971;
-  padding-top: 10px;
-  margin-top: 15px;
-  background: rgba(0, 0, 0, 0.1);
+/* Settings Styling - ApplicationV2 */
+.action-tracker-settings {
+  --at-glass-bg: rgba(255, 255, 255, 0.05);
+  --at-glass-border: rgba(255, 255, 255, 0.1);
+  --at-accent: #ff6400;
+  --at-accent-glow: rgba(255, 100, 0, 0.3);
+  
+  background: linear-gradient(135deg, #1a1a1a 0%, #0d0d0d 100%) !important;
+  border: 1px solid var(--at-glass-border) !important;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.8) !important;
+  backdrop-filter: blur(8px);
+  border-radius: 8px;
+  color: #ceba96;
 }
 
-div.form-group[data-setting-id^="pf2e-auto-action-tracker.header"] label {
-  font-weight: bold !important;
+.action-tracker-settings .window-header {
+  background: rgba(0, 0, 0, 0.3) !important;
+  border-bottom: 1px solid var(--at-glass-border) !important;
   text-transform: uppercase;
-  font-size: 1.1em;
-  color: #ff6400;
+  letter-spacing: 1px;
 }
 
-div.form-group[data-setting-id^="pf2e-auto-action-tracker.header"] .form-fields,
-div.form-group[data-setting-id^="pf2e-auto-action-tracker.header"] .notes {
-  display: none !important;
+.action-tracker-settings .window-title {
+  color: var(--at-accent) !important;
+  text-shadow: 0 0 10px var(--at-accent-glow);
+  font-weight: bold;
+}
+
+.action-tracker-settings .tabs {
+  border-bottom: 1px solid var(--at-glass-border);
+  margin-bottom: 15px;
+  display: flex;
+  justify-content: space-around;
+  padding: 5px 0;
+}
+
+/* Direct Settings Styling - Cache Buster: 0.15.4 */
+.action-tracker-setting-header {
+    background: rgba(0, 0, 0, 0.4) !important;
+    border: 1px solid rgba(255, 255, 255, 0.15) !important;
+    border-left: 4px solid #5e0000 !important; /* Deep PF2e Maroon */
+    padding: 8px 12px !important;
+    margin-top: 1.2em !important;
+    margin-bottom: 8px !important;
+    border-radius: 4px !important;
+    display: flex !important;
+    justify-content: flex-start !important;
+    align-items: center !important;
+    width: 100% !important;
+    pointer-events: none;
+}
+
+.action-tracker-setting-header label {
+    font-weight: 700 !important;
+    font-size: 1.1em !important;
+    color: #ffffff !important;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin: 0 !important;
+    padding: 0 !important;
+    text-align: left !important;
+    flex: 1 !important;
+}
+
+/* Improve UX and spacing for standard settings */
+[data-tab="pf2e-auto-action-tracker"] .form-group:not(.action-tracker-setting-header) {
+    cursor: pointer;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    border-left: 2px solid transparent; /* Reserve space to prevent shifting */
+    padding: 10px 8px !important;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-wrap: wrap; /* Allow notes to wrap below */
+    align-items: center;
+}
+
+[data-tab="pf2e-auto-action-tracker"] .form-group:not(.action-tracker-setting-header):hover {
+    background: rgba(255, 255, 255, 0.05);
+    border-left: 2px solid #5e0000; /* Matching the deep maroon scrollbar */
+    padding-left: 8px !important; /* Keep padding consistent */
+}
+
+[data-tab="pf2e-auto-action-tracker"] .form-group label {
+    color: #ffffff !important;
+    font-weight: 600 !important;
+    font-size: 1.05em;
+    flex: 10 !important; /* Give as much room as possible to the label */
+    margin-right: 10px;
+    white-space: normal;
+}
+
+[data-tab="pf2e-auto-action-tracker"] .form-fields {
+    flex: 0 0 30px !important; /* Constrain the checkbox area */
+    justify-content: flex-end;
+    display: flex;
+    align-items: center;
+}
+
+[data-tab="pf2e-auto-action-tracker"] .notes {
+    color: #bbbbbb !important;
+    font-size: 0.9em !important;
+    opacity: 0.8;
+    margin-top: 6px !important;
+    flex: 0 0 100% !important; /* Notes always take their own line */
+}
+
+.action-tracker-setting-header p.notes {
+    display: none;
+}
+
+.action-tracker-settings .tabs .item {
+  color: #888;
+  transition: all 0.3s ease;
+  padding: 8px 15px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.action-tracker-settings .tabs .item.active {
+  color: var(--at-accent);
+  background: var(--at-glass-bg);
+  text-shadow: 0 0 8px var(--at-accent-glow);
+  border-bottom: none !important;
+}
+
+.action-tracker-settings .tabs .item:hover {
+  color: #eee;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.action-tracker-settings .settings-group {
+  background: var(--at-glass-bg);
+  border: 1px solid var(--at-glass-border);
+  border-radius: 6px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+
+.action-tracker-settings .form-group {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 12px 0;
+  margin: 0;
+}
+
+.action-tracker-settings .form-group:last-child {
+  border-bottom: none;
+}
+
+.action-tracker-settings .form-group label {
+  font-weight: 600;
+  color: #eee;
+}
+
+.action-tracker-settings .notes {
+  color: #888;
+  font-size: 0.85em;
+  font-style: italic;
+  margin-top: 4px;
+}
+
+.action-tracker-settings input[type="checkbox"] {
+  accent-color: var(--at-accent);
+  width: 16px;
+  height: 16px;
+}
+
+.action-tracker-settings .sheet-footer {
+  margin-top: 20px;
+  border-top: 1px solid var(--at-glass-border);
+  padding-top: 15px;
+}
+
+.action-tracker-settings button[type="submit"] {
+  background: linear-gradient(90deg, #ff6400 0%, #ff8c00 100%);
+  border: none;
+  color: white;
+  font-weight: bold;
+  padding: 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 15px rgba(255, 100, 0, 0.2);
+}
+
+.action-tracker-settings button[type="submit"]:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(255, 100, 0, 0.4);
+  filter: brightness(1.1);
 }
 
 /* Alerts and Overspend */

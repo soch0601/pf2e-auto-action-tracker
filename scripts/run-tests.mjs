@@ -6,7 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const files = readdirSync(__dirname).filter(file => file.endsWith("-test.mjs"));
 
-console.log("🚀 Starting Test Suite...");
+console.log("Starting Test Suite...");
 
 for (const file of files) {
     console.log(`\n▶ Running ${file}...`);
@@ -20,4 +20,4 @@ for (const file of files) {
     }
 }
 
-console.log("\n🎉 All tests passed successfully!");
+console.log("\nAll tests passed successfully!");

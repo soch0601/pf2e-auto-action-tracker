@@ -1,5 +1,5 @@
 import { ActionManager } from "./ActionManager";
-import { ActionLogEntry, getForceBarrageInfo } from "./ActionLogTypes";
+import { type ActionLogEntry, getForceBarrageInfo } from "./ActionLogTypes";
 import { SCOPE } from "./globals";
 import { ActorPF2e, CombatantPF2e } from "module-helpers";
 import { ActorHandler } from "./ActorHandler";

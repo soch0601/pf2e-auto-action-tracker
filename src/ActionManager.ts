@@ -6,7 +6,7 @@ import type { ActorPF2e, CombatantPF2e } from "module-helpers";
 import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
 import { getCurrentMapStateFromLog } from "./mapTracker.ts";
 import { isCurrentUserActiveGM } from "./foundryCompat.ts";
-import { ActionLogEntry, getEntryCost } from "./ActionLogTypes.ts";
+import { type ActionLogEntry, getEntryCost } from "./ActionLogTypes.ts";
 
 export class ActionManager {
     static getEntryCost(entry: ActionLogEntry, log?: readonly ActionLogEntry[]): number {

@@ -50,10 +50,12 @@ function observePf2eHudTracker(combat: any): boolean {
 // Initialization
 Hooks.once("init", () => {
     SettingsManager.registerSettings();
-    loadHandlebarsTemplates([
-        `modules/${SCOPE}/templates/sustain-reminder.hbs`
-    ]);
     ChatManager.registerOverrideListeners();
+});
+
+// Style the settings menu
+Hooks.on("renderSettingsConfig", (app: any, html: any) => {
+    SettingsManager.onRenderSettingsConfig(app, html);
 });
 
 Hooks.once("socketlib.ready", () => {
@@ -63,6 +65,7 @@ Hooks.once("socketlib.ready", () => {
 // Once it is ready, now we can wrap functions
 Hooks.once("ready", () => {
     isReady = true;
+    SettingsManager.migrateSettings();
     runAllConflictChecks();
     WrapperManager.wrapFunctions();
 });

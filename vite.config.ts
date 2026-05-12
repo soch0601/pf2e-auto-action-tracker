@@ -33,6 +33,10 @@ export default defineConfig({
                 {
                     src: 'module.json',
                     dest: '.'
+                },
+                {
+                    src: 'lang',
+                    dest: '.'
                 }
             ]
         })

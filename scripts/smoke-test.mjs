@@ -8,15 +8,15 @@ const requiredPaths = [
     'public/templates/sustain-reminder.hbs'
 ];
 
-console.log("🚀 Starting Smoke Test...");
+console.log("Starting Smoke Test...");
 
 let failed = false;
 
 requiredPaths.forEach(p => {
     if (fs.existsSync(path.resolve(p))) {
-        console.log(`✅ Found: ${p}`);
+        console.log(`Found: ${p}`);
     } else {
-        console.error(`❌ MISSING: ${p}`);
+        console.error(`MISSING: ${p}`);
         failed = true;
     }
 });
@@ -25,15 +25,15 @@ requiredPaths.forEach(p => {
 if (!failed) {
     const stats = fs.statSync('dist/main.js');
     if (stats.size < 100) {
-        console.error("❌ dist/main.js is suspiciously small. Did the build fail?");
+        console.error("dist/main.js is suspiciously small. Did the build fail?");
         failed = true;
     }
 }
 
 if (failed) {
-    console.error("🛑 Smoke test failed!");
+    console.error("Smoke test failed!");
     process.exit(1);
 } else {
-    console.log("✨ All structures verified. Proceeding to release.");
+    console.log("All structures verified. Proceeding to release.");
     process.exit(0);
 }

@@ -1,6 +1,6 @@
 import { SPECIAL_ACTIVITIES } from "./library.ts";
 import type { ActiveActivityState, LeafState, OperatorNode, ActionNode, GroupNode } from "./types.d.ts";
-import { ActionLogEntry, getEntryCost } from "../ActionLogTypes.ts";
+import { type ActionLogEntry, getEntryCost } from "../ActionLogTypes.ts";
 import { MovementManager } from "../MovementManager.ts";
 import type { CombatantPF2e } from "module-helpers";
 
