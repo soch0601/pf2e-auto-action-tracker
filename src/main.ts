@@ -1,17 +1,19 @@
 import { ActionManager } from "./ActionManager";
 import { SettingsManager } from "./SettingsManager";
 import { CombatUIManager } from "./CombatUIManager";
+import { ItemManager } from "./ItemManager";
 import { ChatManager } from "./ChatManager";
-import { ActorHandler } from "./ActorHandler";
+import { ActorManager } from "./ActorManager";
+import { ChatCardRenderer } from "./ChatCardRenderer";
 import { MovementManager } from "./MovementManager";
 import { WrapperManager } from "./WrapperManager";
 import { SocketsManager } from "./SocketManager";
 import { ChatMessagePF2e, CombatantPF2e, EncounterPF2e } from "module-helpers"
-import { logConsole, logError, logInfo, logWarn } from "./logger";
+import { logConsole, logError, logInfo } from "./logger";
 import { SCOPE, recentIntent } from "./globals";
 import { runAllConflictChecks } from "./otherModConflicts";
 import { findPf2eHudTracker } from "./trackerAdapters";
-import { findCombatantByMessage, findCombatantByTokenOrActor, findCombatantById, getCombatants, isCurrentUserActiveGM, loadHandlebarsTemplates, findCombatant } from "./foundryCompat";
+import { findCombatantByMessage, findCombatantByTokenOrActor, findCombatantById, getCombatants, isCurrentUserActiveGM } from "./foundryCompat";
 
 // string is the combatant ID.
 const _queues = new Map<string, Promise<void>>();
@@ -50,7 +52,7 @@ function observePf2eHudTracker(combat: any): boolean {
 // Initialization
 Hooks.once("init", () => {
     SettingsManager.registerSettings();
-    ChatManager.registerOverrideListeners();
+    ChatCardRenderer.registerOverrideListeners();
 });
 
 // Style the settings menu
@@ -93,12 +95,29 @@ Hooks.on("createChatMessage", async (message: ChatMessagePF2e) => {
     if (!isReady) return;
     if (!isCurrentUserActiveGM()) return;
 
-    const combatant = findCombatantByMessage(game.combat, message);
-    const c = combatant as unknown as Combatant
-    if (!c?.id) return;
+    const pf2eContext = (message.flags?.pf2e as any)?.context;
+    if (pf2eContext?.type === "damage-taken") {
+        const foundC = findCombatantByMessage(game.combat, message);
+        const directOrigin = (message.flags as any)?.[SCOPE]?.damageOrigin;
+        const flagOrigin = (message as any).getFlag(SCOPE, "damageOrigin");
+        logConsole(`main.ts | createChatMessage | damage-taken detected. Speaker: ${message.speaker?.alias} | Combatant Found: ${foundC?.name || "None"} (ID: ${foundC?.id || "None"}) | Direct Origin: ${!!directOrigin} | Flag Origin: ${!!flagOrigin}`, directOrigin || flagOrigin);
+    }
+
+    let cId = findCombatantByMessage(game.combat, message)?.id;
+
+    if (!cId) {
+        // Fallback for out-of-combat targets: check if there's an active damage origin combatant
+        const origin = ((message as any).getFlag(SCOPE, "damageOrigin") || (message.flags as any)?.[SCOPE]?.damageOrigin) as { originMsgId: string, combatantId: string } | undefined;
+        if (origin?.combatantId) {
+            cId = origin.combatantId;
+            logConsole(`main.ts | createChatMessage | Fallback resolved cId: ${cId} for Speaker: ${message.speaker?.alias}`);
+        }
+    }
+
+    if (!cId) return;
 
     // Enqueue the chat payload
-    enqueueAction(c.id, async () => await ChatManager.handleChatPayload(message));
+    enqueueAction(cId, async () => await ChatManager.handleChatPayload(message));
 });
 
 // Delete Chat hook
@@ -140,7 +159,7 @@ Hooks.on("deleteCombat", async (combat: EncounterPF2e) => {
     for (const combatant of getCombatants(combat)) {
         const actor = combatant.actor;
         if (actor) {
-            await ActorHandler.cleanup(actor);
+            await ActorManager.cleanup(actor);
         }
     }
 
@@ -150,22 +169,10 @@ Hooks.on("deleteCombat", async (combat: EncounterPF2e) => {
     logConsole("Action Tracker: Cleanup complete for all actors in ended combat.");
 });
 
-// Hook before the message is created -used to store flags for recent intent
-Hooks.on("preCreateChatMessage", (message: any) => {
-    const speaker = message.speaker;
-    const uniqueKey = speaker.token || speaker.actor;
-    const intentItemId = recentIntent.get(uniqueKey);
-
-    // PF2e uses origin.uuid for item links in chat
-    const originUuid = message.flags?.[SCOPE]?.sustainedItemUuid || message.flags?.pf2e?.origin?.uuid;
-    const messageItemId = message.flags?.[SCOPE]?.sustainedItemId || originUuid?.split('.').pop();
-
-    if (intentItemId && intentItemId === messageItemId) {
-        message.updateSource({
-            [`flags.${SCOPE}.isExplicitUse`]: true
-        });
-        recentIntent.delete(uniqueKey);
-    }
+// Pre-Create Chat Hook (Runs on the client that originated the message)
+Hooks.on("preCreateChatMessage", (message: ChatMessagePF2e) => {
+    if (!isReady) return;
+    ChatManager.handlePreCreateChatMessage(message);
 });
 
 // Rendering the chat message — v13+ uses renderChatMessageHTML (HTMLElement); legacy renderChatMessage hook
@@ -173,7 +180,7 @@ Hooks.on("preCreateChatMessage", (message: any) => {
 Hooks.on("renderChatMessageHTML", (message: ChatMessagePF2e, html: HTMLElement) => {
     // Does not need enqueuing - This only create messages and click handlers -> which creates more messages.  So no
     // modifications of actions here
-    ChatManager.onRenderChatMessage(message, html);
+    ChatCardRenderer.onRenderChatMessage(message, html);
 });
 
 // UI Hooks for rendering combat tracker
@@ -218,14 +225,21 @@ Hooks.on("updateChatMessage", (message: ChatMessagePF2e, updateData: any) => {
     if (!isReady) return;
     const combat = game.combat;
     if (!combat?.active) return;
-    // Find the combatant associated with this message
-    const combatant = findCombatantByMessage(combat, message);
-    const c = combatant as unknown as Combatant
-    if (!c?.id) return;
+
+    let cId = findCombatantByMessage(combat, message)?.id;
+
+    if (!cId) {
+        const origin = (message as any).getFlag(SCOPE, "damageOrigin") as { originMsgId: string, combatantId: string } | undefined;
+        if (origin?.combatantId) {
+            cId = origin.combatantId;
+        }
+    }
+
+    if (!cId) return;
 
     if (updateData.flags?.pf2e || updateData.whisper) {
         if (isCurrentUserActiveGM()) {
-            enqueueAction(c.id, async () => await ChatManager.handleChatPayload(message));
+            enqueueAction(cId, async () => await ChatManager.handleChatPayload(message));
         }
     }
 
@@ -236,7 +250,7 @@ Hooks.on("updateChatMessage", (message: ChatMessagePF2e, updateData: any) => {
         "flags" in updateData; // Catching system-specific visibility flags if any
 
     if (visibilityChanged) {
-        if (combatant) {
+        if (combat) {
             // Trigger a re-render. 
             // renderPip will now see the new message.visible status 
             // and swap between the real label and "Secret Action".
@@ -296,56 +310,11 @@ Hooks.on("deleteToken", (tokenDoc: any) => {
     if (tokenDoc?.id) MovementManager.resetCapturedHistory(tokenDoc.id);
 });
 
-// Condition Hooks for dynamic Reaction Loss
-Hooks.on("createItem", async (item: any) => {
-    if (!isCurrentUserActiveGM()) return;
-    if (item.type !== "condition" && item.type !== "effect") return;
 
-    if (item.slug === "stunned" || item.slug === "paralyzed") {
-        const actor = item.parent;
-        if (!actor) return;
-
-        const combatant = findCombatantByTokenOrActor(game.combat, undefined, actor.id);
-        const c = combatant as unknown as Combatant
-        if (!c?.id || !combatant) return;
-
-        enqueueAction(c.id, async () => await ActionManager.handleConditionChange(combatant));
-    }
-});
-
-Hooks.on("updateItem", async (item: any, updateData: any) => {
-    if (!isCurrentUserActiveGM()) return;
-    if (item.type !== "condition" && item.type !== "effect") return;
-
-    if (item.slug === "stunned" || item.slug === "paralyzed") {
-        if (updateData.system?.value !== undefined) {
-            const actor = item.parent;
-            if (!actor) return;
-
-            const combatant = findCombatantByTokenOrActor(game.combat, undefined, actor.id);
-            const c = combatant as unknown as Combatant
-            if (!c?.id || !combatant) return;
-
-            enqueueAction(c.id, async () => await ActionManager.handleConditionChange(combatant));
-        }
-    }
-});
-
-Hooks.on("deleteItem", async (item: any) => {
-    if (!isCurrentUserActiveGM()) return;
-    if (item.type !== "condition" && item.type !== "effect") return;
-
-    if (item.slug === "stunned" || item.slug === "paralyzed") {
-        const actor = item.parent;
-        if (!actor) return;
-
-        const combatant = findCombatantByTokenOrActor(game.combat, undefined, actor.id);
-        const c = combatant as unknown as Combatant
-        if (!c?.id || !combatant) return;
-
-        enqueueAction(c.id, async () => await ActionManager.handleConditionChange(combatant));
-    }
-});
+// Item (Condition/Feat/Spell) Hooks
+Hooks.on("createItem", (item: any) => ItemManager.handleCreateItem(item));
+Hooks.on("updateItem", (item: any, update: any) => ItemManager.handleUpdateItem(item, update));
+Hooks.on("deleteItem", (item: any) => ItemManager.handleDeleteItem(item));
 
 export async function enqueueAction(combatantId: string, actionFn: () => Promise<void>) {
     const existingPromise = _queues.get(combatantId);

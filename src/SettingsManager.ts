@@ -125,6 +125,15 @@ export class SettingsManager {
             type: Boolean,
             default: false
         });
+
+        settings.register(SCOPE, "enhancedUndo", {
+            name: "PF2E_ACTION_TRACKER.Settings.EnhancedUndo.Name",
+            hint: getHint("EnhancedUndo", "PF2E_ACTION_TRACKER.Settings.EnhancedUndo.Hint"),
+            scope: "world",
+            config: true,
+            type: Boolean,
+            default: false
+        });
     }
 
     /**

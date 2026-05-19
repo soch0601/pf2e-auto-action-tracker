@@ -1,8 +1,7 @@
 import { ActionManager } from "./ActionManager";
 import { type ActionLogEntry, getForceBarrageInfo } from "./ActionLogTypes";
-import { SCOPE } from "./globals";
 import { ActorPF2e, CombatantPF2e } from "module-helpers";
-import { ActorHandler } from "./ActorHandler";
+import { ActorManager } from "./ActorManager";
 import { MovementManager } from "./MovementManager";
 import { ComplexActionEngine } from "./complexActions/ComplexActionEngine";
 import { logWarn } from "./logger";
@@ -15,6 +14,7 @@ import {
     shouldShowTrackerForMount
 } from "./trackerAdapters";
 import { getMapDisplayState } from "./mapTracker";
+import { DBManager } from "./DBManager";
 
 function canReuseTrackerRender(
     existingRenderKey: string | undefined,
@@ -49,11 +49,11 @@ export class CombatUIManager {
 
         if (!shouldShowTrackerForMount(mount.mode, isGM, isOwner, isPC)) return;
 
-        const log = (c.getFlag(SCOPE, "log") as ActionLogEntry[]) || [];
+        const log = DBManager.getLog(combatant);
         const flattenedLog = ActionManager.getFlattenedActions(combatant);
 
-        const actionSlotsForRenderKey = ActorHandler.getSlots(combatant, 'action');
-        const reactionSlotsForRenderKey = ActorHandler.getSlots(combatant, 'reaction');
+        const actionSlotsForRenderKey = ActorManager.getSlots(combatant, 'action');
+        const reactionSlotsForRenderKey = ActorManager.getSlots(combatant, 'reaction');
 
         const actionSlotsKey = actionSlotsForRenderKey.map(s => s.definition?.slug || 'base').join(',');
         const currentMAP = ActionManager.getCurrentMAP(combatant);
@@ -87,7 +87,7 @@ export class CombatUIManager {
         const charMap: Record<string, string> = { "1": "A", "2": "D", "3": "T" };
 
         // --- 1. Allocation Logic ---
-        const { slots: actionSlots, overspent: overspentActions } = ActorHandler.allocateSlots(combatant, log, 'action');
+        const { slots: actionSlots, overspent: overspentActions } = ActorManager.allocateSlots(combatant, log, 'action');
 
         const pipsToRender: { entry: ActionLogEntry, slot?: any, isGold: boolean, isOver: boolean, subIdx: number, totalCost: number }[] = [];
 
@@ -315,7 +315,7 @@ export class CombatUIManager {
             actionLine.appendChild(mapBadge);
         }
 
-        const isOverspent = log.some(e => ActorHandler.allocateSlots(combatant, [e], 'action').overspent.length > 0);
+        const isOverspent = log.some(e => ActorManager.allocateSlots(combatant, [e], 'action').overspent.length > 0);
         if (overflowCount > 0 && !isCompact) {
             const overflow = document.createElement("span");
             overflow.className = "action-overflow-count";
@@ -366,7 +366,7 @@ export class CombatUIManager {
         container.appendChild(actionLine);
 
         // --- 4. Reactions Line ---
-        const { slots: reactionSlots } = ActorHandler.allocateSlots(combatant, log, 'reaction');
+        const { slots: reactionSlots } = ActorManager.allocateSlots(combatant, log, 'reaction');
 
         const reactionLine = document.createElement("div");
         reactionLine.className = `reaction-line ${isCompact ? 'compact' : ''}`.trim();
@@ -712,7 +712,7 @@ export class CombatUIManager {
         if (!canUndo) return ui.notifications.warn("Permission denied.");
 
         // Determine if we are allowed to undo this specific type
-        const log = ((combatant as any).getFlag(SCOPE, "log") as ActionLogEntry[]) || [];
+        const log = DBManager.getLog(combatant);
         const entry = log[index];
 
         if (entry?.type === 'system' && !game.user.isGM) {

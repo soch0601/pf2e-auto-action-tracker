@@ -27,8 +27,13 @@ export class AttackDetector {
         const slug = flags.context?.action || getSlugFromMsgFlavor(htmlPool) || "attack";
         const isStrike = slug.toLowerCase() === "strike";
 
+        let finalCost = isReaction ? 0 : (cost !== undefined ? cost : 1);
+        if (message.item?.type === "spell" || slug.toLowerCase().includes("spell")) {
+            finalCost = 0;
+        }
+
         return {
-            cost: isReaction ? 0 : (cost !== undefined ? cost : 1),
+            cost: finalCost,
             slug,
             label: flags.context?.title || message.item?.name || getLabelFromMsgFlavor(htmlPool) || "Attack",
             isReaction,

@@ -20,10 +20,14 @@
         },
         "types": [
             "fvtt-types"
-        ]
+        ],
+        "rootDir": "src"
     },
     "include": [
         "src/**/*.ts",
-        "src/**/*.d.ts",
+        "src/**/*.d.ts"
+    ],
+    "exclude": [
+        "node_modules"
     ]
 }

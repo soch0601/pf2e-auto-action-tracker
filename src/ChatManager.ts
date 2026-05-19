@@ -1,159 +1,109 @@
 import type { ActionLogEntry } from "./ActionLogTypes.ts";
-import { SCOPE } from "./globals.ts";
-import type { ActorPF2e, ChatMessagePF2e, CombatantPF2e } from "module-helpers";
+import { SCOPE, recentIntent } from "./globals.ts";
+import type { ActorPF2e, CombatantPF2e } from "module-helpers";
+import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
 import { SettingsManager } from "./SettingsManager.ts";
-import { ActorHandler } from "./ActorHandler.ts";
-import { logConsole } from "./logger.ts"
+import { ActorManager } from "./ActorManager.ts";
+import { logConsole, logError } from "./logger.ts";
 import * as Detectors from "./chatTypeDetectors/index.ts";
 import type { IActionDetails, DetectedAction } from "./chatTypeDetectors/IActionDetector.ts";
-import { findCombatantByMessage, findCombatantById, findCombatantByTokenOrActor, getOpenApplications, isCurrentUserActiveGM, renderHandlebarsTemplate } from "./foundryCompat.ts";
+import { findCombatantByMessage, findCombatantById, getOpenApplications, isCurrentUserActiveGM, renderHandlebarsTemplate } from "./foundryCompat.ts";
+import { ChatPendingState } from "./ChatPendingState.ts";
 
-// Use a Template Literal Type for clarity, or just string
 type CombatantId = string;
 
 export class ChatManager {
-
     private static rerollQueue: Record<CombatantId, string[]> = {};
 
-    // Keyed by Combatant ID to allow multiple combatants to process in parallel
-    private static _queueSemaphore = new Map<string, Promise<void>>();
+    public static async deleteMessage(msgId: string) {
+        const msg = game.messages.get(msgId);
+        if (msg) {
+            try {
+                await (msg as any).delete({});
+            } catch (err) {
+                logError(`ChatManager | FAILED to delete message ${msgId}:`, err);
+            }
+        }
+    }
 
-    public static registerOverrideListeners() {
-        document.addEventListener('click', async (event) => {
-            const target = event.target as HTMLElement;
-            const btn = target.closest<HTMLButtonElement>('button');
-            if (!btn) return;
+    public static async deleteMessages(msgIds: string[]) {
+        for (const msgId of msgIds) {
+            await this.deleteMessage(msgId);
+        }
+    }
 
-            if (btn.matches('[data-action="strike-damage"], [data-action="strike-critical"], [data-action="spell-damage"], [data-action="damage"]')) {
-                const chatMessage = btn.closest('.chat-message');
-                const originMsgId = chatMessage?.getAttribute('data-message-id');
-                if (!originMsgId) return;
+    public static async handleChatPayload(message: any) {
+        const pf2eFlags = message.flags?.pf2e;
 
-                const message = game.messages.get(originMsgId);
-                const combatant = findCombatantByMessage((game as any).combat, message);
-                if (!combatant) return;
-
-                const c = combatant as any;
-                const queue = (c.getFlag(SCOPE, 'pendingDamageQueue') as string[]) || [];
-                queue.push(originMsgId);
-                await c.setFlag(SCOPE, 'pendingDamageQueue', queue);
-
-                // Note: If the dialog opens, the render hook (Step 2) will 
-                // handle moving this ID from the queue to the Dialog instance.
-            } else if (btn.matches('[data-action="toggle-crit-immune"]')) {
-                const chatMessage = btn.closest('.chat-message');
-                const originMsgId = chatMessage?.getAttribute('data-message-id');
-                if (!originMsgId) return;
-
-                const message = game.messages.get(originMsgId);
-                if (!message) return;
-
-                const flags = message.flags?.[SCOPE];
-                if (!flags || !flags.isCombinedDamage) return;
-
-                const currentCritImmuneState = !!flags.isCritImmune;
-                const originatingActionId = flags.originatingActionId as string;
-
-                const combatant = findCombatantByMessage((game as any).combat, message);
-                if (!combatant || !originatingActionId) return;
-
-                const { ActionManager } = await import("./ActionManager.ts");
-                const entry = ActionManager.getActionById(combatant, originatingActionId);
-
-                if (entry && entry.ComplexActionState) {
-                    const { DamageCombinator } = await import("./damageCombinator.ts");
-                    // Pass the INVERTED state to processDamageCombination
-                    await DamageCombinator.processDamageCombination(combatant, entry, undefined, !currentCritImmuneState);
+        // --- Enhanced Undo: Link Damage Taken Cards ---
+        if (pf2eFlags?.context?.type === "damage-taken") {
+            const origin = message.getFlag(SCOPE, "damageOrigin") as { originMsgId: string, combatantId: string } | undefined;
+            if (origin) {
+                const { originMsgId, combatantId } = origin;
+                const targetCombatant = findCombatantById(game.combat, combatantId);
+                logConsole(`ChatManager | handleChatPayload | Found origin in map. targetCombatant: ${(targetCombatant as any)?.name || "None"}`);
+                if (targetCombatant) {
+                    const speaker = message.speaker || {};
+                    let actorUuid = message.actor?.uuid;
+                    if (!actorUuid) {
+                        if (speaker.token && speaker.scene) {
+                            const tokenDoc = game.scenes.get(speaker.scene)?.tokens.get(speaker.token);
+                            actorUuid = tokenDoc?.actor?.uuid || `Actor.${speaker.actor}`;
+                        } else if (speaker.actor) {
+                            actorUuid = `Actor.${speaker.actor}`;
+                        }
+                    }
+                    if (actorUuid) {
+                        const { ActionManager } = await import("./ActionManager.ts");
+                        await ActionManager.linkDamageApplicationToAction(targetCombatant, originMsgId, actorUuid, message.id);
+                    }
                 }
             }
-        }, { capture: true });
-    }
-
-    public static async handleDamageModifierDialogRender(combatant: CombatantPF2e, app: any) {
-        const c = combatant as any;
-        const queue = (c.getFlag(SCOPE, 'pendingDamageQueue') as string[]) || [];
-        if (queue.length === 0) return;
-
-        const originMsgId = queue.pop();
-        if (!originMsgId) return;
-
-        await c.setFlag(SCOPE, 'pendingDamageQueue', queue);
-
-        // Attach to the app instance AFTER the flag is safely updated
-        app.options.originatingMessageId = originMsgId;
-    }
-
-
-    public static async maybeGetOriginMsgId(message: any) {
-        const isDamageRoll = message.flags?.pf2e?.context?.type === "damage-roll";
-        if (!isDamageRoll) return;
-
-        const combatant = findCombatantByMessage((game as any).combat, message);
-        if (!combatant) return;
-
-        let originatingMsgId: string | undefined;
-
-        // A. Check if there's an active Dialog for this actor
-        const activeDialog = getOpenApplications().find(
-            (w: any) => w.constructor.name === "DamageModifierDialog" && w.actor?.id === (combatant as any).actorId
-        ) as any;
-
-        if (activeDialog?.options?.originatingMessageId) {
-            originatingMsgId = activeDialog.options.originatingMessageId;
-            // Clean up the dialog so it doesn't double-trigger
-            delete activeDialog.options.originatingMessageId;
-        } else {
-            // B. Fallback to Queue (The Shift+Click scenario)
-            const c = combatant as any;
-            const queue = (c.getFlag(SCOPE, 'pendingDamageQueue') as string[]) || [];
-
-            originatingMsgId = queue.shift(); // FIFO for rolls
-
-            if (queue.length > 0) {
-                await c.setFlag(SCOPE, 'pendingDamageQueue', queue);
-            } else {
-                await c.unsetFlag(SCOPE, 'pendingDamageQueue');
-            }
-        }
-
-        if (!originatingMsgId) {
-            // A. Check if there's an active Dialog for this actor
-            // We look for the dialog that is currently being "submitted"
-            const activeDialog = getOpenApplications().find((w: any) =>
-                w.constructor.name === "DamageModifierDialog" &&
-                w.actor?.id === (combatant as any).actorId &&
-                w.options?.originatingMessageId // Ensure it has our custom flag
-            ) as any;
-
-            if (activeDialog?.options?.originatingMessageId) {
-                originatingMsgId = activeDialog.options.originatingMessageId;
-                // IMPORTANT: Mark it so other hooks don't grab it
-                delete activeDialog.options.originatingMessageId;
-            }
-        }
-
-        return originatingMsgId;
-
-    }
-
-    /*
-     * Handle a chat message payload.  Handles re-rolls, sustains, and any actions taken from chat messages...
-     * This will ensure that if the message is modified, we edit the proper log entry, otherwise we create a new one
-     */
-    static async handleChatPayload(message: any) {
-        const combatant = findCombatantByMessage((game as any).combat, message);
-        const c = combatant as any;
-
-        if (!combatant) return;
-
-        const originId = await this.maybeGetOriginMsgId(message);
-        if (originId) {
-            const { ActionManager } = await import("./ActionManager.ts");
-            ActionManager.linkDamageToAttack(combatant, originId, message.id);
             return;
         }
 
-        const pf2eFlags = message.flags?.pf2e;
+        const combatant = findCombatantByMessage((game as any).combat, message);
+        if (!combatant) return;
+        const c = combatant as any;
+
+        const speaker = message.speaker || {};
+        let actorUuid = message.actor?.uuid;
+        let tokenId = (message as any).token?.uuid;
+
+        if (!actorUuid && speaker.actor) {
+            if (speaker.token && speaker.scene) {
+                tokenId = `Scene.${speaker.scene}.Token.${speaker.token}`;
+                const tokenDoc = game.scenes.get(speaker.scene)?.tokens.get(speaker.token);
+                actorUuid = tokenDoc?.actor?.uuid || `Actor.${speaker.actor}`;
+            } else {
+                actorUuid = `Actor.${speaker.actor}`;
+            }
+        }
+
+        // --- Enhanced Undo: Link Spell Attack Rolls ---
+        if (pf2eFlags?.context?.type === "attack-roll") {
+            const htmlPool = `${message.flavor || ""} ${message.content || ""}`.trim();
+            const { getSlugFromMsgFlavor } = await import("./chatTypeDetectors/detectorUtilities.ts");
+            const slug = pf2eFlags.context.action || getSlugFromMsgFlavor(htmlPool) || "attack";
+
+            const rawItemUsageFromFlag = message.getFlag(SCOPE, "itemUsage") as any;
+            logConsole(`ChatManager | handleChatPayload | Spell Attack Roll | rawItemUsageFromFlag: ${!!rawItemUsageFromFlag}`);
+
+            const isSpellAttack = message.item?.type === "spell" || slug.toLowerCase().includes("spell");
+            if (isSpellAttack) {
+                const { ActionManager } = await import("./ActionManager.ts");
+                const originUuid = pf2eFlags.origin?.uuid;
+                await ActionManager.linkSpellAttackToAction(combatant, message.item?.uuid, message.item?.id, originUuid, message.item?.name, message.id);
+                return;
+            }
+        }
+
+        const originId = await this.maybeGetOriginMsgId(message);
+        if (originId) {
+            await this.linkDamageRollToAction(combatant, originId, message.id);
+            return;
+        }
+
         if (pf2eFlags?.context?.isReroll) {
             const oldMsgId = this.popFromRerollQueue(c.id);
 
@@ -169,20 +119,28 @@ export class ChatManager {
                 return;
             }
 
-            await ActionManager.editAction(combatant, oldMsgId, { msgId: message.id });
-            logConsole(`Reroll processed: ${oldMsgId} -> ${message.id}`);
+            const spentHeroPoint = message.getFlag(SCOPE, "heroPointSpent");
+            await ActionManager.editAction(combatant, oldMsgId, {
+                msgId: message.id,
+                spentHeroPoint: !!spentHeroPoint
+            });
+            logConsole(`Reroll processed: ${oldMsgId} -> ${message.id} | spentHeroPoint: ${!!spentHeroPoint}`);
             return;
         }
 
         // Delegate detection and metadata extraction to Parser
+        let sustainItem: { id: string, name: string } | undefined;
         if (Detectors.SustainDetector.isSustainMessage(message)) {
-            await this.processSustainMessage(message, combatant);
+            const { itemId, itemName } = Detectors.SustainDetector.getSustainMetadata(message);
+            if (itemId) {
+                sustainItem = { id: itemId, name: itemName };
+            }
         }
 
         const data = this.runMessageDetectors(message);
         if (!data) return;
 
-        const isQuickenedEligible = data.isQuickenedEligible ?? ActorHandler.isActionQuickenedEligible(combatant, data.slug || "");
+        const isQuickenedEligible = data.isQuickenedEligible ?? ActorManager.isActionQuickenedEligible(combatant, data.slug || "");
 
         // Check if we are updating an existing message or logging a new one
         const { ActionManager } = await import("./ActionManager.ts");
@@ -224,88 +182,121 @@ export class ChatManager {
                 ...mapMetadata,
                 category: data.category,
                 linkedMessages: [],
-                rank: data.rank
+                rank: data.rank,
+                spellSlot: (message.getFlag(SCOPE, "spellSlotUsage") as any) || (actorUuid ? ChatPendingState.getPendingSpellSlot(actorUuid, tokenId) : undefined),
+                itemUsage: (message.getFlag(SCOPE, "itemUsage") as any) || (actorUuid ? ChatPendingState.getPendingItemUsage(actorUuid, tokenId) : undefined),
+                sustainItem
             });
         }
     }
 
-    /**
-     * Handles rendering of the chat messages for our custom sustain spells - and adds the onClick logic for the buttons in it
-     */
-    static onRenderChatMessage(message: any, html: HTMLElement) {
-        const sustainButtons = html.querySelectorAll<HTMLButtonElement>("button[data-action^='sustain-']");
-        if (sustainButtons.length === 0) return;
+    public static async linkDamageRollToAction(combatant: CombatantPF2e, attackMsgId: string, damageMsgId: string) {
+        const { ActionManager } = await import("./ActionManager.ts");
+        const entry = ActionManager.getActionById(combatant, attackMsgId);
 
-        const choiceData = message.getFlag(SCOPE, "sustainChoice") as { choice: string, itemName: string };
+        if (entry) {
+            const linkedMessages = [...entry.linkedMessages, { type: 'damage', msgId: damageMsgId } as const];
+            await ActionManager.editAction(combatant, attackMsgId, { linkedMessages });
 
-        if (choiceData) {
-            const card = html.querySelector(".pf2e-auto-action-tracker-sustain-card");
-            if (!card) return;
-            const yesBtn = card.querySelector<HTMLButtonElement>("button[data-action='sustain-yes']");
-            const noBtn = card.querySelector<HTMLButtonElement>("button[data-action='sustain-no']");
-            if (!yesBtn || !noBtn) return;
-            if (choiceData.choice === "yes") {
-                yesBtn.innerHTML = '<i class="fas fa-check"></i> Sustained';
-                yesBtn.disabled = true;
-                noBtn.style.display = "none";
-            } else {
-                noBtn.innerHTML = '<i class="fas fa-times"></i> Lapsed';
-                noBtn.disabled = true;
-                yesBtn.style.display = "none";
+            const updatedParent = ActionManager.getFlattenedActions(combatant).find(e =>
+                e.ComplexActionState && ComplexActionEngine.getAllChildMessageIds(e.ComplexActionState).includes(attackMsgId)
+            );
+
+            if (updatedParent && updatedParent.ComplexActionState) {
+                const { DamageCombinator } = await import("./damageCombinator.ts");
+                await DamageCombinator.processDamageCombination(combatant, updatedParent, damageMsgId);
             }
-            return;
         }
-
-        sustainButtons.forEach((button) => {
-            button.addEventListener("click", async (event) => {
-                event.preventDefault();
-                const { action, actorId, itemId, itemName, combatantId } = button.dataset;
-
-                const actor = (game.actors as any).get(actorId ?? "");
-                if (!actor || (!actor.isOwner && !game.user.isGM)) return;
-
-                // Resolve the combatant directly by ID (Identity Crisis Solved)
-                const combatant = findCombatantById(game.combat, combatantId);
-
-                const choice = action === "sustain-yes" ? "yes" : "no";
-                const payload = {
-                    messageId: message.id,
-                    actorId: actor.id,
-                    combatantId: combatantId, // Pass this to the socket
-                    itemId: itemId || "",
-                    itemName: itemName || "",
-                    choice: choice
-                };
-
-                if (game.user.isGM) {
-                    if (choice === "yes") {
-                        await this.processSustainYes(actor, itemId || "", itemName || "", combatantId);
-                    } else {
-                        // Pass the specific combatant found via ID
-                        await this.processSustainNo(actor, itemId || "", combatant);
-                    }
-                    await (message as any).setFlag(SCOPE, "sustainChoice", { choice, itemName });
-                } else {
-                    const { SocketsManager } = await import("./SocketManager.ts");
-                    SocketsManager.emitSustainChoice(payload);
-                }
-            });
-        });
     }
 
-    /**
-     * Checks for items that needs to be sustained and sends out messages for them
-     */
-    static async checkSustainReminder(combatant: CombatantPF2e) {
+    public static async handleDamageModifierDialogRender(combatant: CombatantPF2e, app: any) {
+        const c = combatant as any;
+        const queue = (c.getFlag(SCOPE, 'pendingDamageQueue') as string[]) || [];
+        if (queue.length === 0) return;
+
+        const originMsgId = queue.pop();
+        if (!originMsgId) return;
+
+        await c.setFlag(SCOPE, 'pendingDamageQueue', queue);
+        app.options.originatingMessageId = originMsgId;
+    }
+
+    public static async maybeGetOriginMsgId(message: any) {
+        const isDamageRoll = message.flags?.pf2e?.context?.type === "damage-roll";
+        if (!isDamageRoll) return;
+
+        const combatant = findCombatantByMessage((game as any).combat, message);
+        if (!combatant) return;
+
+        let originatingMsgId: string | undefined;
+
+        const activeDialog = getOpenApplications().find(
+            (w: any) => w.constructor.name === "DamageModifierDialog" && w.actor?.id === (combatant as any).actorId
+        ) as any;
+
+        if (activeDialog?.options?.originatingMessageId) {
+            originatingMsgId = activeDialog.options.originatingMessageId;
+            delete activeDialog.options.originatingMessageId;
+        } else {
+            const c = combatant as any;
+            const queue = (c.getFlag(SCOPE, 'pendingDamageQueue') as string[]) || [];
+            if (queue.length > 0) {
+                originatingMsgId = queue.pop();
+                await c.setFlag(SCOPE, 'pendingDamageQueue', queue);
+            } else {
+                const speaker = message.speaker || {};
+                const itemOriginUuid = message.flags?.pf2e?.origin?.uuid;
+                const itemOriginId = message.flags?.pf2e?.origin?.uuid?.split('.').pop();
+                const { ActionManager } = await import("./ActionManager.ts");
+                const logs = ActionManager.getFlattenedActions(combatant);
+
+                const matchingAction = logs.find(log => {
+                    if (log.msgId === itemOriginId) return true;
+                    const matchesSpell = log.slug === "cast-a-spell" && log.linkedMessages.some(m => m.msgId === itemOriginId);
+                    if (matchesSpell) return true;
+
+                    if (log.slug === "sustain-a-spell" && log.sustainItem?.id === itemOriginId) return true;
+
+                    const exactUuidMatch = log.linkedMessages.some(m => m.type === "attack" && m.msgId === itemOriginId);
+                    if (exactUuidMatch) return true;
+
+                    return false;
+                });
+
+                if (matchingAction) {
+                    originatingMsgId = matchingAction.msgId;
+                } else {
+                    const recentLogs = logs.filter(log =>
+                        log.type === "action" &&
+                        (log.slug === "strike" || log.slug === "cast-a-spell" || log.slug === "sustain-a-spell" || log.category === "spell" || log.category === "attack")
+                    );
+
+                    // Smart fallback: Find the most recent Strike/Spell attack that does NOT have a linked damage message yet
+                    const unlinkedAttack = [...recentLogs].reverse().find(log =>
+                        !log.linkedMessages.some(m => m.type === "damage")
+                    );
+
+                    if (unlinkedAttack) {
+                        originatingMsgId = unlinkedAttack.msgId;
+                    } else if (recentLogs.length > 0) {
+                        originatingMsgId = recentLogs[recentLogs.length - 1].msgId;
+                    }
+                }
+            }
+        }
+
+        return originatingMsgId;
+    }
+
+    public static async checkSustainReminder(combatant: CombatantPF2e) {
         if (!SettingsManager.get("whisperSustain")) return;
 
         const c = combatant as any;
         const actor = c.actor;
-
-        // Safety check: ensure actor exists and has a name
         if (!actor?.name) return;
 
-        const sustainData = (c.getFlag(SCOPE, "sustainData") as Record<string, string>) || {};
+        const { DBManager } = await import("./DBManager.ts");
+        const sustainData = DBManager.getSustainData(combatant);
 
         if (Object.keys(sustainData).length > 0) {
             for (const [itemId, itemName] of Object.entries(sustainData)) {
@@ -320,19 +311,14 @@ export class ChatManager {
 
                 await ChatMessage.create({
                     content: content,
-                    // Map the user objects to IDs
                     whisper: recipients.map((u: any) => u.id),
-                    // Pass the actual actor document here
                     speaker: ChatMessage.getSpeaker({ actor: actor })
                 });
             }
         }
     }
 
-    /**
-     * Sends out a whispered alert to the given actor AND GMs...
-     */
-    static async triggerAlert(actor: ActorPF2e, header: string, message: string, settingKey: string) {
+    public static async triggerAlert(actor: ActorPF2e, header: string, message: string, settingKey: string) {
         const playerIds = Object.entries(actor.ownership)
             .filter(([id, level]) => level === 3 && id !== "default")
             .map(([id]) => id);
@@ -344,25 +330,18 @@ export class ChatManager {
             setting: settingKey
         };
 
-        // Execute for everyone so each client checks their own local settings
         const { SocketsManager } = await import("./SocketManager.ts");
         SocketsManager.socket.executeForEveryone("attemptWhisper", payload);
     }
 
-    /**
-     * Adds an old message ID to our reroll queue tracker
-     */
-    static addToRerollQueue(combatantId: string, msgId: string) {
+    public static addToRerollQueue(combatantId: string, msgId: string) {
         if (!this.rerollQueue[combatantId]) this.rerollQueue[combatantId] = [];
         if (!this.rerollQueue[combatantId].includes(msgId)) {
             this.rerollQueue[combatantId].push(msgId);
         }
     }
 
-    /**
-     * Broadcasts a reroll to the GM to ensure it is tracked
-     */
-    static async broadcastReroll(combatantId: string, msgId: string) {
+    public static async broadcastReroll(combatantId: string, msgId: string) {
         this.addToRerollQueue(combatantId, msgId);
         if (!isCurrentUserActiveGM()) {
             const { SocketsManager } = await import("./SocketManager.ts");
@@ -370,10 +349,7 @@ export class ChatManager {
         }
     }
 
-    /**
-      * Clean up the reroll queue
-      */
-    static clearRerollQueue(combatantId?: string) {
+    public static clearRerollQueue(combatantId?: string) {
         if (combatantId) {
             delete this.rerollQueue[combatantId];
         } else {
@@ -381,117 +357,20 @@ export class ChatManager {
         }
     }
 
-    /**
-     * If we delete a message, delete the associated action (unless it is part of the reroll queue)
-     */
-    static async handleDeletedMessage(combatant: CombatantPF2e, msgId: string) {
+    public static async handleDeletedMessage(combatant: CombatantPF2e, msgId: string) {
         if (this.rerollQueueIncludes(combatant, msgId)) return;
         const { ActionManager } = await import("./ActionManager.ts");
         await ActionManager.removeAction(combatant, msgId);
     }
 
-    /**
-      * Handles if the sustain yes button was clicked on a message
-      */
-    static async processSustainYes(actor: any, itemId: string, itemName: string, combatantId?: string) {
-        const item = actor.items.get(itemId);
-        const displayName = itemName || item?.name || "Action";
-        const combatant = findCombatantById(game.combat, combatantId);
-        const token = (combatant as any)?.token;
-
-        await ChatMessage.create({
-            // Force the speaker to be the proper token, since this is what we process on...
-            speaker: {
-                actor: actor.id,
-                token: token?.id,
-                scene: token?.parent?.id,
-                alias: actor.name
-            },
-            flavor: `<h4 class="action"><strong>Sustain</strong> <span class="action-glyph">1</span></h4>`,
-            content: `<div class="pf2e">Sustaining <strong>@UUID[${item?.uuid}]{${displayName}}</strong></div>`,
-            flags: {
-                pf2e: {
-                    origin: {
-                        name: displayName,
-                        type: "action",
-                        slug: "sustain-a-spell"
-                    },
-                    context: {
-                        type: "action",
-                        title: `Sustain: ${displayName}`,
-                        options: ["num-actions:1", "action:sustain-a-spell"]
-                    }
-                },
-                [SCOPE]: {
-                    isSustainAutomation: true,
-                    sustainedItemId: itemId,
-                    sustainedItemUuid: item?.uuid,
-                    sustainedItemName: displayName
-                }
-            }
-        } as any);
-    }
-
-    /**
-     * Handles if the systain button no was pressed.  Attempts to do a small amount of cleanup
-     */
-    static async processSustainNo(actor: any, itemId: string, combatant?: any) {
-        // 1. Precise Cleanup of flags
-        // If we don't have a combatant passed in, try to find one (fallback)
-        const targetCombatant = combatant || findCombatantByTokenOrActor(game.combat, null, actor.id);
-
-        if (targetCombatant) {
-            const { ActionManager } = await import("./ActionManager.ts");
-            await ActionManager.stopSustaining(targetCombatant, itemId);
-        }
-
-        // 2. Effect Cleanup
-        const item = actor.items.get(itemId);
-        const relatedEffects = actor.itemTypes.effect.filter((e: any) => {
-            const originUuid = e.flags?.pf2e?.origin?.uuid;
-            return (item && originUuid === item.uuid) || originUuid?.includes(itemId);
-        });
-
-        for (const effect of relatedEffects) {
-            await effect.delete();
-        }
-
-        // 3. Item Cleanup (e.g. temporary spell effects)
-        if (item) {
-            const protectedTypes = ["spell", "weapon", "equipment", "consumable", "backpack", "treasure"];
-            if (!protectedTypes.includes(item.type)) {
-                await item.delete();
-            }
-        }
-    }
-
-    /**
-     * Determine if a reroll queue for a combatant includes a message ID
-     */
     private static rerollQueueIncludes(combatant: CombatantPF2e, msgId: string): boolean {
         const combatantId = (combatant as unknown as Combatant).id;
         if (!combatantId) return false;
-        // Returns true if the id is in the array, false otherwise (even if queue is missing)
         return this.rerollQueue[combatantId]?.includes(msgId) ?? false;
     }
 
-    /**
-     * Pop and item from the reroll queue and return it
-     */
     private static popFromRerollQueue(combatantId: string): string | undefined {
         return this.rerollQueue[combatantId]?.shift();
-    }
-
-    /**
-     * Moves the sustain-specific flag parsing out of the main loop
-     */
-    private static async processSustainMessage(message: ChatMessagePF2e, combatant: CombatantPF2e) {
-        const { itemId, itemName } = Detectors.SustainDetector.getSustainMetadata(message);
-
-        if (itemId && message.id) {
-            const { ActionManager } = await import("./ActionManager.ts");
-            ActionManager.trackSustain(combatant, message.id, itemId, itemName);
-        }
     }
 
     private static runMessageDetectors(message: any): DetectedAction | undefined {
@@ -506,16 +385,12 @@ export class ChatManager {
         ];
 
         for (const Detector of activeDetectors) {
-            // 1. Kill the loop if a detector identifies this as "noise" (e.g. Damage Rolls)
             if (Detector.shouldBreak(message)) {
                 return undefined;
-            };
+            }
 
-            // 2. If this detector recognizes the message, parse it and stop
             if (Detector.isType(message)) {
                 const details: IActionDetails = Detector.getDetails(message);
-
-                // Handle Whisper/Secret logic here globally
                 const isPublic = message.whisper.length === 0 || message.whisper.includes(game.user.id);
                 const finalLabel = isPublic ? details.label : "Secret Action";
 
@@ -534,5 +409,69 @@ export class ChatManager {
         }
 
         return undefined;
+    }
+
+    public static handlePreCreateChatMessage(message: any) {
+        const speaker = message.speaker || {};
+        let actorUuid = message.actor?.uuid;
+        let tokenId = message.token?.uuid;
+
+        if (!actorUuid && speaker.actor) {
+            if (speaker.token && speaker.scene) {
+                tokenId = `Scene.${speaker.scene}.Token.${speaker.token}`;
+                const tokenDoc = game.scenes.get(speaker.scene)?.tokens.get(speaker.token);
+                actorUuid = tokenDoc?.actor?.uuid || `Actor.${speaker.actor}`;
+            } else {
+                actorUuid = `Actor.${speaker.actor}`;
+            }
+        }
+
+        if (!actorUuid) return;
+
+        // 1. Spell Slots
+        const spellSlot = ChatPendingState.getPendingSpellSlot(actorUuid, tokenId);
+        if (spellSlot) {
+            message.updateSource({ flags: { [SCOPE]: { spellSlotUsage: spellSlot } } } as any);
+        }
+
+        // 2. Item Usage
+        const itemUsage = ChatPendingState.getPendingItemUsage(actorUuid, tokenId);
+        if (itemUsage) {
+            logConsole(`ChatManager | handlePreCreateChatMessage | itemUsage found for ${actorUuid}. Has itemData: ${!!itemUsage.itemData}`);
+            message.updateSource({ flags: { [SCOPE]: { itemUsage: itemUsage } } } as any);
+        }
+
+        // 3. Damage Origins
+        const pf2eFlags = message.flags?.pf2e as any;
+        if (pf2eFlags?.context?.type === "damage-taken") {
+            const origin = ChatPendingState.getPendingDamageOrigin(actorUuid);
+            if (origin) {
+                message.updateSource({ flags: { [SCOPE]: { damageOrigin: origin } } } as any);
+            }
+        }
+
+        // 4. Reroll Hero Point flag injection
+        if (pf2eFlags?.context?.isReroll) {
+            const isHeroPoint = ChatPendingState.getPendingReroll(actorUuid);
+            if (isHeroPoint) {
+                message.updateSource({ flags: { [SCOPE]: { heroPointSpent: true } } } as any);
+                logConsole(`ChatManager | handlePreCreateChatMessage | Injected heroPointSpent flag into reroll message.`);
+            }
+        }
+
+        // 5. Recent Intent flag injection for explicit item uses
+        const tokenKey = speaker.token;
+        const actorKey = speaker.actor;
+        const intentItemId = (tokenKey ? recentIntent.get(tokenKey) : null) || (actorKey ? recentIntent.get(actorKey) : null);
+        const originUuid = message.flags?.[SCOPE]?.sustainedItemUuid || message.flags?.pf2e?.origin?.uuid;
+        const messageItemId = message.flags?.[SCOPE]?.sustainedItemId || originUuid?.split('.').pop();
+
+        if (intentItemId && (intentItemId === messageItemId || !messageItemId)) {
+            message.updateSource({
+                [`flags.${SCOPE}.isExplicitUse`]: true
+            });
+            if (tokenKey) recentIntent.delete(tokenKey);
+            if (actorKey) recentIntent.delete(actorKey);
+        }
     }
 }

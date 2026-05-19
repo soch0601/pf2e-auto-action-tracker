@@ -51,12 +51,12 @@ export class SocketsManager {
 
         const actor = (game.actors as any).get(data.actorId);
         if (actor) {
-            const { ChatManager } = await import("./ChatManager.ts");
+            const { ChatCardRenderer } = await import("./ChatCardRenderer.ts");
             if (data.choice === "yes") {
-                await ChatManager.processSustainYes(actor, data.itemId, data.itemName, data.combatantId);
+                await ChatCardRenderer.processSustainYes(actor, data.itemId, data.itemName, data.combatantId);
             } else {
                 const combatant = game.combat?.combatants.get(data.combatantId);
-                await ChatManager.processSustainNo(actor, data.itemId, combatant);
+                await ChatCardRenderer.processSustainNo(actor, data.itemId, combatant);
             }
         }
     }
@@ -84,7 +84,7 @@ export class SocketsManager {
         if (!combatant) return;
 
         const { ActionManager } = await import("./ActionManager.ts");
-        await ActionManager.removeAction(combatant as any, data.msgId);
+        await ActionManager.removeAction(combatant as any, data.msgId, data.isRecursive);
     }
 
     /**

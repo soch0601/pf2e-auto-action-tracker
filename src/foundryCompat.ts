@@ -62,7 +62,10 @@ export function findCombatantById(combat: any, combatantId?: string): any | unde
  */
 export function findCombatantByTokenOrActor(combat: any, tokenId?: string | null, actorId?: string | null): any | undefined {
     if (!tokenId && !actorId) return;
-    return findCombatant(combat, (c: any) => tokenId ? (c.tokenId === tokenId || c.token?.id === tokenId) : (c.actorId === actorId || c.actor?.id === actorId));
+    return getCombatants(combat).find((c: any) => 
+        (tokenId && (c.tokenId === tokenId || c.token?.id === tokenId)) || 
+        (actorId && (c.actorId === actorId || c.actor?.id === actorId))
+    );
 }
 
 /**
@@ -71,4 +74,23 @@ export function findCombatantByTokenOrActor(combat: any, tokenId?: string | null
 export function findCombatantByMessage(combat: any, message: any): any | undefined {
     const speaker = message.speaker;
     return findCombatantByTokenOrActor(combat, speaker?.token ?? undefined, speaker?.actor ?? undefined);
+}
+
+/**
+ * Identifies the actor and token associated with a given DOM element (usually a sheet).
+ */
+export function getActorAndTokenFromSheet(element: HTMLElement | null): { actor: any | null, actorId: string | null, tokenId: string | null } {
+    const result = { actor: null, actorId: null, tokenId: null };
+    if (!element) return result;
+
+    const app = Object.values(ui.windows).find(w =>
+        (w as any).element?.get(0) === element
+    ) as any;
+
+    if (app?.actor) {
+        result.actor = app.actor;
+        result.actorId = app.actor.id;
+        result.tokenId = app.actor.token?.id ?? app.token?.id;
+    }
+    return result;
 }

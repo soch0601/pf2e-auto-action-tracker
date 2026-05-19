@@ -16,10 +16,8 @@ export class DamageCombinator {
             return;
         }
 
-        logConsole(`DamageCombinator | Attempting to combine damage rolls:`, damageMessagePairs);
-
         const { chatMessages, targetUuid } = this.extractMessagesAndTarget(damageMessagePairs);
-        if (chatMessages.length !== damageMessagePairs.length || !targetUuid) {
+        if (chatMessages.length !== damageMessagePairs.length) {
             return;
         }
 
@@ -65,7 +63,14 @@ export class DamageCombinator {
         const chatMessages = damageMessagePairs.map(p => (game as any).messages.get(p.damageMsgId)).filter(m => m !== undefined);
         const attackMessages = damageMessagePairs.map(p => (game as any).messages.get(p.attackMsgId)).filter(m => m !== undefined);
 
-        const targets = attackMessages.map(m => m.flags?.pf2e?.context?.target?.token || m.flags?.pf2e?.target?.value).filter(t => t !== undefined && t !== null);
+        const allRelatedMessages = [...attackMessages, ...chatMessages];
+
+        const targets = allRelatedMessages.map(m => {
+            const contextTarget = m.flags?.pf2e?.context?.target?.token || m.flags?.pf2e?.context?.target?.actor;
+            const targetValue = m.flags?.pf2e?.target?.value || m.flags?.pf2e?.target?.token || m.flags?.pf2e?.target?.actor;
+            return contextTarget || targetValue;
+        }).filter(t => t !== undefined && t !== null);
+
         let targetUuid: string | undefined = undefined;
 
         if (targets.length > 0) {
@@ -73,8 +78,7 @@ export class DamageCombinator {
             const allSameTarget = targets.every(t => t === firstTarget);
 
             if (!allSameTarget) {
-                logConsole(`DamageCombinator | Targets do not match. Aborting combination.`);
-                return { chatMessages, targetUuid: undefined };
+                return { chatMessages: [], targetUuid: undefined };
             }
             targetUuid = firstTarget;
         }
@@ -82,14 +86,16 @@ export class DamageCombinator {
         return { chatMessages, targetUuid };
     }
 
-    private static async detectCritImmunity(targetUuid: string, isCritImmuneOverride?: boolean): Promise<{ isCritImmune: boolean, targetName: string }> {
+    private static async detectCritImmunity(targetUuid: string | undefined, isCritImmuneOverride?: boolean): Promise<{ isCritImmune: boolean, targetName: string }> {
         let isCritImmune = false;
         let targetName = "Unknown Target";
 
         if (typeof isCritImmuneOverride === 'boolean') {
             isCritImmune = isCritImmuneOverride;
             logConsole(`DamageCombinator | Overriding crit immunity state to: ${isCritImmune}`);
-        } else if (targetUuid) {
+        }
+
+        if (targetUuid) {
             const targetDoc = await (globalThis as any).fromUuid(targetUuid);
             if (targetDoc) {
                 if (targetDoc.name) targetName = targetDoc.name;

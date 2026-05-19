@@ -1,36 +1,80 @@
 import { SCOPE } from "./globals.ts";
-import { logConsole } from "./logger.ts";
+import { logConsole, logError } from "./logger.ts";
 import { SettingsManager } from "./SettingsManager.ts";
-import { ActorHandler } from "./ActorHandler.ts";
+import { ActorManager } from "./ActorManager.ts";
 import type { ActorPF2e, CombatantPF2e } from "module-helpers";
 import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
 import { getCurrentMapStateFromLog } from "./mapTracker.ts";
 import { isCurrentUserActiveGM } from "./foundryCompat.ts";
 import { type ActionLogEntry, getEntryCost } from "./ActionLogTypes.ts";
+import { DBManager } from "./DBManager.ts";
+import { ItemManager } from "./ItemManager.ts";
 
 export class ActionManager {
+    private static writeQueues = new Map<string, Promise<any>>();
+    private static _lastUndoId: string | null = null;
+    private static _lastUndoTime: number = 0;
     static getEntryCost(entry: ActionLogEntry, log?: readonly ActionLogEntry[]): number {
         return getEntryCost(entry, log);
     }
-
-
-    // Buffer: key is `${combatantId}-${msgId}`
-    private static _sustainBuffer = new Map<string, { id: string, name: string }>();
 
     /**
      * READ-ONLY ACCESSORS
      * We return clones to prevent external mutation of the flag data.
      */
     static getActions(combatant: CombatantPF2e): ReadonlyArray<ActionLogEntry> {
-        return Object.freeze(this._getInternalLog(combatant));
+        return Object.freeze(DBManager.getLog(combatant));
     }
 
     static getActionById(combatant: CombatantPF2e, msgId: string): ActionLogEntry | undefined {
         return this.getFlattenedActions(combatant).find(e => e.msgId === msgId);
     }
 
+    /**
+     * Link a damage application card to the action that caused it
+     */
+    public static async linkDamageApplicationToAction(combatant: CombatantPF2e, originMsgId: string, targetUuid: string, cardId: string) {
+        const cId = (combatant as any).id;
+        const existing = this.writeQueues.get(cId) || Promise.resolve();
+
+        const newPromise = existing.then(async () => {
+            try {
+                await this._linkDamageApplicationToActionInternal(combatant, originMsgId, targetUuid, cardId);
+            } catch (err) {
+                logError("ActionManager | linkDamageApplicationToAction queue error:", err);
+            }
+        });
+
+        this.writeQueues.set(cId, newPromise);
+        await newPromise;
+    }
+
+    /**
+     * Link a spell attack roll to the action that cast or sustained it
+     */
+    public static async linkSpellAttackToAction(combatant: CombatantPF2e, itemUuid: string | undefined, itemId: string | undefined, originUuid: string | undefined, itemName: string | undefined, msgId: string) {
+        const log = DBManager.getLog(combatant);
+        // Look backwards to find the most recent spell cast that matches this item
+        for (let i = log.length - 1; i >= 0; i--) {
+            const entry = log[i];
+            const isMatch = entry.itemUsage?.uuid === itemUuid ||
+                (originUuid && entry.itemUsage?.uuid === originUuid) ||
+                entry.spellSlot?.entryId === itemId ||
+                entry.sustainItem?.id === itemId ||
+                (entry.label && itemName && (entry.label.includes(itemName) || itemName.includes(entry.label)));
+            if (isMatch) {
+                const linkedMessages = [...(entry.linkedMessages || []), { type: 'attack', msgId } as const];
+                await this.editAction(combatant, entry.msgId, { linkedMessages });
+                logConsole(`ActionManager | Successfully linked spell attack ${msgId} to action ${entry.msgId}`);
+                return true;
+            }
+        }
+        logConsole(`ActionManager | Failed to link spell attack ${msgId} to any action!`);
+        return false;
+    }
+
     static getLastAction(combatant: CombatantPF2e): { entry: ActionLogEntry, isSubAction: boolean, subAction?: ActionLogEntry, actionLabel?: string } | undefined {
-        const logs = this._getInternalLog(combatant);
+        const logs = DBManager.getLog(combatant);
         if (!logs || logs.length === 0) return undefined;
 
         const lastEntry = logs[logs.length - 1];
@@ -54,14 +98,6 @@ export class ActionManager {
     }
 
     /**
-     * It was determined there is something to sustain - track it for later filing on the next action
-     */
-    static trackSustain(combatant: CombatantPF2e, msgId: string, itemId: string, itemName: string) {
-        const key = `${(combatant as any).id}-${msgId}`;
-        this._sustainBuffer.set(key, { id: itemId, name: itemName });
-    }
-
-    /**
      * Handle start of turn shenanigans, including resetting the previous round's actions and getting the
      * fresh list of actions to spend for this round
      */
@@ -77,37 +113,33 @@ export class ActionManager {
             MovementManager.broadcastReset(tokenId);
         }
 
-        // 1. Logic call to ActorHandler, but the ActionManager does the filing
-        const isQuickened = ActorHandler.getQuickenedState(combatant);
+        // 1. Logic call to ActorManager, but the ActionManager does the filing
+        const isQuickened = ActorManager.getQuickenedState(combatant);
 
         // 2. Calculate drains using the combatant (which hasn't updated its flag yet, so we pass state)
         const { logEntries, actionsSpent, reactionsSpent } = this.calculateStartOfTurnDrains(combatant);
 
-        // 3. RAW Stunned Logic: Decrement before calculating turn resources
+        // 3. RAW Stunned Logic
         const stunnedCondition = actor.itemTypes.condition.find(c => c.slug === "stunned");
         let stunnedCost = 0;
 
         if (stunnedCondition) {
             const currentVal = (stunnedCondition.value ?? 0);
-            const maxActions = ActorHandler.getMaxActions(c);
+            const maxActions = ActorManager.getMaxActions(c);
             stunnedCost = Math.min(currentVal, maxActions);
 
-            // Update the actual condition on the actor
             const newVal = currentVal - stunnedCost;
             if (newVal <= 0) {
-                await stunnedCondition.delete();
+                await stunnedCondition.delete({});
             } else {
                 await stunnedCondition.update({ "system.value.value": newVal } as any);
             }
             logConsole(`RAW: Decremented Stunned on ${actor.name} by ${stunnedCost}.`);
         }
 
-        // 4. ATOMIC UPDATE: File everything to the combatant at once
-        await c.update({
+        // 4. ATOMIC UPDATE
+        await DBManager.updateLogs(combatant, logEntries, true, undefined, {
             [`flags.${SCOPE}.isQuickenedSnapshot`]: isQuickened,
-            [`flags.${SCOPE}.log`]: logEntries,
-            [`flags.${SCOPE}.actionsSpent`]: actionsSpent,
-            [`flags.${SCOPE}.reactionsSpent`]: reactionsSpent,
             [`flags.${SCOPE}.lastOverspendAlert`]: 0
         });
 
@@ -150,26 +182,15 @@ export class ActionManager {
 
         const { MovementManager } = await import("./MovementManager.ts");
         const tokenId = c.tokenId || c.token?.id;
-        const isMove = MovementManager.isMoveAction(action.msgId);
 
         if (action.type === 'system') {
-            const currentLog = [...this._getInternalLog(combatant)];
+            const currentLog = [...DBManager.getLog(combatant)];
             currentLog.push(action);
-            await this._updateLogs(combatant, currentLog, false);
+            await DBManager.updateLogs(combatant, currentLog, false);
             return;
         }
 
-        // Sustain enrichment
-        if (action.msgId) {
-            const key = `${c.id}-${action.msgId}`;
-            const pendingSustain = this._sustainBuffer.get(key);
-            if (pendingSustain) {
-                action.sustainItem = pendingSustain;
-                this._sustainBuffer.delete(key);
-            }
-        }
-
-        const currentLog = [...this._getInternalLog(combatant)];
+        const currentLog = [...DBManager.getLog(combatant)];
         const incomingSlug = action.slug || (action.type === 'action' ? 'strike' : action.type);
 
         // 0. Prepare potential new sequence for the incoming action
@@ -211,7 +232,7 @@ export class ActionManager {
                     openEntry.cost = overrideCost;
                 }
 
-                await this._updateLogs(combatant, currentLog, false);
+                await DBManager.updateLogs(combatant, currentLog, false);
                 return;
             } else if (ComplexActionEngine.canComplete(openEntry.ComplexActionState)) {
                 openEntry.ComplexActionState = ComplexActionEngine.complete(openEntry.ComplexActionState, ComplexActionEngine.getAllChildActions(openEntry.ComplexActionState).reverse()[0].msgId);
@@ -239,7 +260,7 @@ export class ActionManager {
         }
 
         currentLog.push(action);
-        await this._updateLogs(combatant, currentLog, false);
+        await DBManager.updateLogs(combatant, currentLog, false);
     }
 
     /**
@@ -258,7 +279,7 @@ export class ActionManager {
             });
         }
 
-        const currentLog = [...this._getInternalLog(combatant)];
+        const currentLog = [...DBManager.getLog(combatant)];
 
         // 1. Identify the target and potential parent
         const topLevelIndex = currentLog.findIndex(e => e.msgId === msgId);
@@ -353,15 +374,13 @@ export class ActionManager {
 
         // 4. Final Sync
         const { MovementManager } = await import("./MovementManager.ts");
-        await this._updateLogs(combatant, currentLog, MovementManager.isMoveAction(msgId));
+        await DBManager.updateLogs(combatant, currentLog, MovementManager.isMoveAction(msgId));
     }
 
     /**
      * Remove an existing ActionLogEntry from the action log for the current turn
      */
-    static async removeAction(combatant: CombatantPF2e, msgId: string): Promise<void> {
-        const currentLog = [...this._getInternalLog(combatant)];
-
+    static async removeAction(combatant: CombatantPF2e, msgId: string, isRecursive: boolean = false) {
         // Always reset movement history when an action is removed (Undo)
         const tokenId = (combatant as any).tokenId || (combatant as any).token?.id;
         const { MovementManager } = await import("./MovementManager.ts");
@@ -372,39 +391,187 @@ export class ActionManager {
             const { SocketsManager } = await import("./SocketManager.ts");
             return await SocketsManager.socket.executeAsGM("removeAction", {
                 combatantId: (combatant as any as Combatant).id,
-                msgId
+                msgId,
+                isRecursive
             });
         }
 
-        // 1. UNLOCK: If any activity was locked/broken by this specific ID, clear it
-        currentLog.forEach(e => {
-            if (e.ComplexActionState?.completedBy === msgId) {
-                delete e.ComplexActionState.completedBy;
-                e.label = ComplexActionEngine.toString(e.ComplexActionState);
+        try {
+            const entry = this.getActionById(combatant, msgId);
+            const { ChatManager } = await import("./ChatManager.ts");
+
+            // 1. Update the History Log
+            const currentLog = DBManager.getLog(combatant);
+            let logChanged = false;
+
+            // A. Check if this is a child action inside a complex parent
+            const parent = currentLog.find(e => e.ComplexActionState && ComplexActionEngine.getAllChildMessageIds(e.ComplexActionState).includes(msgId));
+
+            if (parent && parent.ComplexActionState) {
+                parent.ComplexActionState = ComplexActionEngine.remove(parent.ComplexActionState, msgId);
+                parent.label = ComplexActionEngine.toString(parent.ComplexActionState);
+                parent.cost = ComplexActionEngine.getOverrideCost(parent.ComplexActionState) ?? parent.cost;
+
+                // If the parent was completed by this message, it's already handled by the UNLOCK logic below
+                // but we also need to ensure the parent's cost/label are updated in the log.
+                logChanged = true;
             }
-        });
 
-        // 2. SEARCH: Find the parent container or the top-level target
-        const parentEntry = currentLog.find(e =>
-            e.ComplexActionState && ComplexActionEngine.getAllChildMessageIds(e.ComplexActionState).includes(msgId)
-        );
-        const topLevelIndex = currentLog.findIndex(e => e.msgId === msgId);
+            // B. UNLOCK: If this action was completing a complex activity, unlock that activity
+            currentLog.forEach(e => {
+                if (e.ComplexActionState?.completedBy === msgId) {
+                    delete e.ComplexActionState.completedBy;
+                    e.label = ComplexActionEngine.toString(e.ComplexActionState);
+                    logChanged = true;
+                }
+            });
 
-        // 3. RESOLVE
-        if (parentEntry && parentEntry.ComplexActionState) {
-            // CASE A: The ID belongs to a CHILD. 
-            // We only remove the child from the engine state. 
-            // The parent entry stays in the log, even if childActions becomes empty.
-            parentEntry.ComplexActionState = ComplexActionEngine.remove(parentEntry.ComplexActionState, msgId);
-            parentEntry.label = ComplexActionEngine.toString(parentEntry.ComplexActionState);
+            // C. Filter out top-level actions (if it wasn't a child, it's a top-level)
+            const newLog = currentLog.filter(e => e.msgId !== msgId);
+            if (newLog.length !== currentLog.length) logChanged = true;
 
-        } else if (topLevelIndex !== -1) {
-            // CASE B: The ID belongs to a TOP-LEVEL entry (could be a Parent or a normal action).
-            // Since it's top-level, we remove the whole entry from the log.
-            currentLog.splice(topLevelIndex, 1);
+            if (logChanged) {
+                await DBManager.updateLogs(combatant, newLog, true, entry?.sustainItem?.id);
+            }
+
+            if (!entry) {
+                // If no entry exists in the log, just ensure the message is gone
+                await ChatManager.deleteMessage(msgId);
+                return;
+            }
+
+            // 2. Perform Enhanced Undo (System Reversions + Children)
+            if (SettingsManager.get("enhancedUndo")) {
+                await this.performEnhancedUndo(combatant, entry);
+            } else {
+                // If enhanced undo is off, just delete the message
+                await ChatManager.deleteMessage(msgId);
+
+                // Ensure child chat cards are still cleaned up
+                if (entry.ComplexActionState) {
+                    const children = ComplexActionEngine.getAllChildActions(entry.ComplexActionState);
+                    await Promise.allSettled(children.map(child => ChatManager.deleteMessage(child.msgId)));
+
+                    if (entry.ComplexActionState.combinedDamageMessageId) {
+                        await ChatManager.deleteMessage(entry.ComplexActionState.combinedDamageMessageId);
+                    }
+                }
+            }
+
+        } catch (err) {
+            logError(`ActionManager | Failed to remove action ${msgId}:`, err);
+        }
+    }
+
+    /**
+     * Perform the actual system-level reversions for an action undo
+     */
+    private static async performEnhancedUndo(combatant: CombatantPF2e, entry: ActionLogEntry) {
+        const c = combatant as any;
+        logConsole(`ActionManager | performEnhancedUndo starting for ${entry.label} (${entry.msgId}) | type: ${entry.type} | combatant: ${c.id} | actor: ${c.actor?.uuid || c.actor?.id} | token: ${c.token?.uuid}`);
+
+        // 1. Handle Complex Action Children (Recursion)
+        if (entry.ComplexActionState) {
+            const children = ComplexActionEngine.getAllChildActions(entry.ComplexActionState);
+            logConsole(`ActionManager | performEnhancedUndo | Complex action child count: ${children.length}`);
+
+            // Explicitly collect child primary and linked message IDs as a failsafe
+            const failsafeIds: string[] = [];
+            for (const child of children) {
+                if (child.msgId) failsafeIds.push(child.msgId);
+                const childLinks = child.linkedMessages || [];
+                for (const m of childLinks) {
+                    if (m.type !== 'applied-damage' && m.msgId) {
+                        failsafeIds.push(m.msgId);
+                    }
+                }
+            }
+
+            // We use Promise.allSettled to handle all children in parallel, passing the memory entry to avoid DB race conditions
+            await Promise.allSettled(children.map(child => this.performEnhancedUndo(combatant, child)));
+
+            // Failsafe cleanup of any remaining child messages
+            if (failsafeIds.length > 0) {
+                const { ChatManager } = await import("./ChatManager.ts");
+                logConsole(`ActionManager | Failsafe deleting child messages: ${failsafeIds.join(', ')}`);
+                await Promise.allSettled(failsafeIds.map(id => ChatManager.deleteMessage(id)));
+            }
+
+            // Cleanup combined damage message if exists
+            if (entry.ComplexActionState.combinedDamageMessageId) {
+                const { ChatManager } = await import("./ChatManager.ts");
+                logConsole(`ActionManager | Deleting combined damage message: ${entry.ComplexActionState.combinedDamageMessageId}`);
+                await ChatManager.deleteMessage(entry.ComplexActionState.combinedDamageMessageId);
+            }
         }
 
-        await this._updateLogs(combatant, currentLog, true);
+        // 2. Undo Damage Applications
+        const damageApplications = (entry.linkedMessages || []).filter(m => m.type === 'applied-damage');
+        logConsole(`ActionManager | performEnhancedUndo | Found ${damageApplications.length} damage applications to undo.`);
+        for (const app of damageApplications) {
+            logConsole(`ActionManager | performEnhancedUndo | Reverting damage application on ${app.targetUuid} via card ${app.msgId}`);
+            const message = (game as any).messages.get(app.msgId);
+            if (!message) {
+                logConsole(`ActionManager | performEnhancedUndo | WARNING: Could not find ChatMessage ${app.msgId} in game.messages!`);
+            }
+            const appliedDamage = message?.flags?.pf2e?.appliedDamage;
+            if (appliedDamage && app.targetUuid) {
+                if (appliedDamage.isReverted) {
+                    logConsole(`ActionManager | Skipping damage undo for ${app.targetUuid} because it was already manually reverted.`);
+                } else {
+                    await ActorManager.undoDamage(app.targetUuid, appliedDamage, app.msgId);
+                }
+                const { ChatManager } = await import("./ChatManager.ts");
+                await ChatManager.deleteMessage(app.msgId);
+            } else {
+                logConsole(`ActionManager | performEnhancedUndo | WARNING: Message flags or targetUuid missing. Has appliedDamage: ${!!appliedDamage} | Has targetUuid: ${!!app.targetUuid}`);
+            }
+        }
+
+        // 3. Refund Spell Slot
+        if (entry.spellSlot) {
+            await ActorManager.refundSpellSlot((combatant as any).actor, entry.spellSlot);
+        }
+
+        // 4. Refund Item Usage
+        if (entry.itemUsage) {
+            await ItemManager.refundItemUsage(entry.itemUsage.uuid, entry.itemUsage);
+        }
+
+        // 5. Remove Created Effects
+        if (entry.createdEffects && entry.createdEffects.length > 0) {
+            for (const uuid of entry.createdEffects) {
+                const effect = await fromUuid(uuid as any);
+                if (effect && "delete" in effect) {
+                    await (effect as any).delete({});
+                }
+            }
+        }
+
+        // 5.5. Refund Spent Hero Point
+        if (entry.spentHeroPoint) {
+            const actor = (combatant as any).actor;
+            if (actor) {
+                const current = actor.system.resources?.heroPoints?.value ?? 0;
+                const max = actor.system.resources?.heroPoints?.max ?? 3;
+                const newValue = Math.min(max, current + 1);
+                logConsole(`ActionManager | Refunding Hero Point on ${actor.name}. Value: ${current} -> ${newValue}`);
+                await actor.update({ "system.resources.heroPoints.value": newValue });
+            }
+        }
+
+        // 6. Delete Linked Messages (Rolls etc)
+        const { ChatManager } = await import("./ChatManager.ts");
+        const entryLinks = entry.linkedMessages || [];
+        if (entryLinks.length > 0) {
+            const messageIds = entryLinks
+                .filter(m => m.type !== 'applied-damage')
+                .map(m => m.msgId);
+            await Promise.allSettled(messageIds.map(id => ChatManager.deleteMessage(id)));
+        }
+
+        // 7. Delete the primary message
+        await ChatManager.deleteMessage(entry.msgId);
     }
 
     static async completeComplexAction(combatant: CombatantPF2e, action: ActionLogEntry) {
@@ -416,7 +583,7 @@ export class ActionManager {
             });
         }
 
-        const currentLog = [...this._getInternalLog(combatant)];
+        const currentLog = [...DBManager.getLog(combatant)];
         if (!action.ComplexActionState) return;
 
         const topLevelIndex = currentLog.findIndex(e => e.msgId === action.msgId);
@@ -433,45 +600,18 @@ export class ActionManager {
         const updatedAction = { ...topLevelAction, ...updates };
         currentLog[topLevelIndex] = updatedAction;
 
-        await this._updateLogs(combatant, currentLog, true);
+        await DBManager.updateLogs(combatant, currentLog, true);
     }
 
-
-    static async linkDamageToAttack(combatant: CombatantPF2e, attackMsgId: string | undefined, damageMsgId: string) {
-
-        if (!attackMsgId) return
-
-        const entry = this.getActionById(combatant, attackMsgId);
-
-        if (entry) {
-            const updatedLinkedRolls = entry.linkedMessages.concat({ type: 'damage', msgId: damageMsgId });
-            await this.editAction(combatant, attackMsgId, { linkedMessages: updatedLinkedRolls });
-
-            const updatedParent = this.getFlattenedActions(combatant).find(e => 
-                e.ComplexActionState && ComplexActionEngine.getAllChildMessageIds(e.ComplexActionState).includes(attackMsgId)
-            );
-
-            if (updatedParent && updatedParent.ComplexActionState) {
-                const { DamageCombinator } = await import("./damageCombinator.ts");
-                await DamageCombinator.processDamageCombination(combatant, updatedParent, damageMsgId);
-            }
-        }
-    }
-
-    /**
-      * Public entry point to stop tracking a sustained item (e.g., when it lapses)
-      */
     static async stopSustaining(combatant: CombatantPF2e, itemId: string) {
-        const currentLogs = this._getInternalLog(combatant);
-        // Reuse our unified private updater
-        await this._updateLogs(combatant, currentLogs, true, itemId);
+        const currentLogs = DBManager.getLog(combatant);
+        await DBManager.updateLogs(combatant, currentLogs, true, itemId);
     }
 
     static getFlattenedActions(combatant: CombatantPF2e): ActionLogEntry[] {
-        const log = this._getInternalLog(combatant);
+        const log = DBManager.getLog(combatant);
         return log.flatMap(entry => {
             if (entry.ComplexActionState) {
-                // Return the parent (for metadata) + all children
                 const children = ComplexActionEngine.getAllChildActions(entry.ComplexActionState);
                 return [entry, ...children];
             }
@@ -483,85 +623,19 @@ export class ActionManager {
         combatant: CombatantPF2e
     ): { attackCount: number, penalty: 0 | 4 | 5 | 8 | 10, profile: "standard" | "agile" } {
         const isActiveTurn = (game as any).combat?.combatant?.id === (combatant as any).id;
-        return getCurrentMapStateFromLog(this._getInternalLog(combatant), isActiveTurn);
+        return getCurrentMapStateFromLog(DBManager.getLog(combatant), isActiveTurn);
     }
 
-    /**
-     * Handle filing data to the database and rerendering the combat UI to show the updates
-     */
-    private static async _updateLogs(
-        combatant: CombatantPF2e,
-        newLogs: ActionLogEntry[],
-        skipOverspendCheck: boolean,
-        removeSustainId?: string,
-        extraFlags?: Record<string, any>
-    ) {
-        if (!isCurrentUserActiveGM()) return;
-
-        const c = combatant as any;
-        const actionsSpent = newLogs.filter(e => e.type !== 'reaction').reduce((sum, e) => sum + this.getEntryCost(e, newLogs), 0);
-        const reactionsSpent = newLogs.filter(e => e.type === 'reaction').reduce((sum, e) => sum + this.getEntryCost(e, newLogs), 0);
-
-        const hasQuickenedSnapshot = ActorHandler.hasQuickenedSnapshot(combatant);
-
-        const updateData: Record<string, any> = {
-            [`flags.${SCOPE}.log`]: newLogs,
-            [`flags.${SCOPE}.actionsSpent`]: actionsSpent,
-            [`flags.${SCOPE}.reactionsSpent`]: reactionsSpent,
-            [`flags.${SCOPE}.isQuickenedSnapshot`]: hasQuickenedSnapshot
-        };
-
-        if (extraFlags) {
-            Object.assign(updateData, extraFlags);
-        }
-
-        // 1. Get the PERSISTENT registry. No round check here!
-        // This stays until the user clicks "Let Lapse".
-        let sustainMap = { ...(c.getFlag(SCOPE, "sustainData") || {}) };
-
-        // 2. Handle Removal (The "Let Lapse" button calls this with removeSustainId)
-        if (removeSustainId) {
-            delete sustainMap[removeSustainId];
-        }
-
-        // 3. Handle Sustain additions
-        newLogs.forEach(entry => {
-            if (entry.sustainItem && entry.sustainItem.id !== removeSustainId) {
-                sustainMap[entry.sustainItem.id] = entry.sustainItem.name;
-            }
-        });
-
-        // 4. Always update the registry
-        updateData[`flags.${SCOPE}.sustainData`] = sustainMap;
-
-        // --- Overspend Logic ---
-        if (!skipOverspendCheck) {
-            const economyUpdate = await ActionManager.checkOverspend(combatant, newLogs);
-            if (economyUpdate) {
-                updateData[`flags.${SCOPE}.lastOverspendAlert`] = economyUpdate.lastOverspendAlert;
-            }
-            await ActionManager.checkReactionOverspend(combatant, newLogs);
-        }
-
-        await c.update(updateData, { diff: false, recursive: false });
-    }
-
-    /**
-     * Getthe internal logs from the combatant
-     */
-    private static _getInternalLog(combatant: CombatantPF2e): ActionLogEntry[] {
-        return ((combatant as any).getFlag(SCOPE, "log") as ActionLogEntry[]) || [];
-    }
 
     /**
      * Determine how many actions / reactions to drain from slows/starts, and logs the system action accordingly
      */
     private static calculateStartOfTurnDrains(combatant: CombatantPF2e, quickenedOverride?: boolean) {
         const actor = (combatant as any).actor!;
-        const stunnedVal = ActorHandler.getConditionValue(actor, "stunned");
-        const slowedVal = ActorHandler.getConditionValue(actor, "slowed");
+        const stunnedVal = ActorManager.getConditionValue(actor, "stunned");
+        const slowedVal = ActorManager.getConditionValue(actor, "slowed");
         const isParalyzed = actor.hasCondition("paralyzed");
-        const maxActions = ActorHandler.getMaxActions(combatant, quickenedOverride);
+        const maxActions = ActorManager.getMaxActions(combatant, quickenedOverride);
 
         const logEntries: ActionLogEntry[] = [];
         let actionsSpent = 0;
@@ -580,7 +654,7 @@ export class ActionManager {
 
         // Reaction Drain
         if (isParalyzed || stunnedVal > maxActions) {
-            reactionsSpent = ActorHandler.getSlots(combatant, 'reaction').length;
+            reactionsSpent = ActorManager.getSlots(combatant, 'reaction').length;
             logEntries.push({ type: 'reaction', cost: reactionsSpent, msgId: "System", label: `${isParalyzed ? 'Paralyzed' : 'Stunned'}: Reaction Lost`, isQuickenedEligible: false, category: "system", linkedMessages: [] });
         }
 
@@ -589,17 +663,16 @@ export class ActionManager {
 
     /**
      * Handles when conditions are dynamically added or removed mid-turn/off-turn.
-     * We only manage reaction drains here, because Action drains are resolved strictly at the start of a turn.
      */
     static async handleConditionChange(combatant: CombatantPF2e) {
         const c = combatant as any;
         const actor = c.actor as ActorPF2e | undefined;
         if (!actor) return;
 
-        const stunnedVal = ActorHandler.getConditionValue(actor, "stunned");
+        const stunnedVal = ActorManager.getConditionValue(actor, "stunned");
         const isParalyzed = actor.hasCondition("paralyzed");
 
-        let log = [...this._getInternalLog(combatant)];
+        let log = [...DBManager.getLog(combatant)];
         const reactionDrainIndex = log.findIndex(e => e.type === 'reaction' && e.category === 'system' && e.label.includes('Reaction Lost'));
 
         const needsReactionDrain = isParalyzed || stunnedVal > 0;
@@ -607,7 +680,7 @@ export class ActionManager {
         let changed = false;
 
         if (needsReactionDrain && reactionDrainIndex === -1) {
-            const reactionsSpent = ActorHandler.getSlots(combatant, 'reaction').length;
+            const reactionsSpent = ActorManager.getSlots(combatant, 'reaction').length;
             log.push({
                 type: 'reaction',
                 cost: reactionsSpent,
@@ -624,12 +697,12 @@ export class ActionManager {
         }
 
         if (changed) {
-            await this._updateLogs(combatant, log, false);
+            await DBManager.updateLogs(combatant, log, false);
         }
     }
 
     /**
-     * Determine if there are any remaining actions for a user this round.  Whisper accordingly (should only be done at end of a turn)
+     * Determine if there are any remaining actions for a user this round.
      */
     private static async checkUnderSpend(combatant: CombatantPF2e, log: readonly ActionLogEntry[]) {
         const c = combatant as any;
@@ -637,57 +710,39 @@ export class ActionManager {
         const actor = c.actor as ActorPF2e | undefined;
         if (!actor) return;
 
-        const max = ActorHandler.getMaxActions(combatant);
+        const max = ActorManager.getMaxActions(combatant);
         if (spent < max) {
             const diff = max - spent;
-            // No need to cast 'actor' again inside the call, it's already typed now
             const { ChatManager } = await import("./ChatManager.ts");
             await ChatManager.triggerAlert(actor, "Economy", `**${c.name}** ended turn with **${diff}** actions/bonus actions remaining.`, 'whisperUnderspend');
         }
     }
 
-    /**
-      * Logic to determine if an over spending alert should be sent for actions.
-      * Returns the new alert value for the flag update, or null if no alert is sent.
-      */
-    private static async checkOverspend(combatant: CombatantPF2e, newLogs: ActionLogEntry[]): Promise<{ lastOverspendAlert: number } | null> {
-        const c = combatant as any;
-        const actor = c.actor as ActorPF2e | null;
-        if (!actor || !SettingsManager.get("whisperOverspend") || !isCurrentUserActiveGM()) return null;
+    private static async _linkDamageApplicationToActionInternal(combatant: CombatantPF2e, originMsgId: string, targetUuid: string, cardId: string) {
+        logConsole(`ActionManager | linkDamageApplicationToAction called. Combatant: ${(combatant as any).name} | OriginMsgId: ${originMsgId} | TargetUuid: ${targetUuid} | CardId: ${cardId}`);
+        const originMessage = (game as any).messages.get(originMsgId);
+        const originatingActionId = originMessage?.getFlag(SCOPE, "originatingActionId");
 
-        const { overspent } = ActorHandler.allocateSlots(combatant, newLogs, 'action');
+        const entry = this.getFlattenedActions(combatant).find(e =>
+            e.msgId === originMsgId ||
+            e.msgId === originatingActionId ||
+            e.linkedMessages.some(m => m.type === 'damage' && m.msgId === originMsgId) ||
+            (e.ComplexActionState && e.ComplexActionState.combinedDamageMessageId === originMsgId)
+        );
 
-        const actionLog = newLogs.filter(e => e.type !== 'reaction');
-        const rawTotalSpent = actionLog.reduce((sum, e) => sum + this.getEntryCost(e, newLogs), 0);
-
-        if (overspent.length > 0) {
-            const reason = `Spent actions that exceeded available slots (${overspent.map(o => o.label).join(', ')}).`;
-            const lastAlert = (c.getFlag(SCOPE, "lastOverspendAlert") as number) || 0;
-            if (rawTotalSpent > lastAlert) {
-                const { ChatManager } = await import("./ChatManager.ts");
-                await ChatManager.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperOverspend');
+        if (entry) {
+            logConsole(`ActionManager | Found matching action entry: ${entry.label} (${entry.msgId})`);
+            const linkedMessages = [...entry.linkedMessages];
+            // Prevent duplicate logs for the same card
+            if (!linkedMessages.some(m => m.type === 'applied-damage' && m.msgId === cardId)) {
+                linkedMessages.push({ type: 'applied-damage', msgId: cardId, targetUuid });
+                await this.editAction(combatant, entry.msgId, { linkedMessages });
+                logConsole(`ActionManager | Linked damage application to action ${entry.label}. Total links: ${linkedMessages.length}`);
+            } else {
+                logConsole(`ActionManager | Damage application card ${cardId} is already linked.`);
             }
-            return { lastOverspendAlert: rawTotalSpent };
+        } else {
+            logConsole(`ActionManager | FAILED to find action entry for damage application. Origin: ${originMsgId}`);
         }
-        return null;
-    }
-
-    /**
-      * Logic to determine if an over spending alert should be sent for reactions. 
-      */
-    private static async checkReactionOverspend(combatant: CombatantPF2e, newLogs: ActionLogEntry[]) {
-        const c = combatant as any;
-        const actor = c.actor as ActorPF2e | null;
-        if (!actor || !SettingsManager.get("whisperReactionOverspend") || !isCurrentUserActiveGM()) return;
-
-        const { overspent } = ActorHandler.allocateSlots(combatant, newLogs, 'reaction');
-
-        if (overspent.length > 0) {
-            const reason = `Spent reactions that exceeded available slots (${overspent.map(o => o.label).join(', ')}).`;
-            const { ChatManager } = await import("./ChatManager.ts");
-            await ChatManager.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperReactionOverspend');
-        }
-
-        return;
     }
 }

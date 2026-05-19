@@ -17,11 +17,37 @@ export interface ActionLogEntry {
     rank?: number;
     distance?: number;
     baseCost?: number;
+    spellSlot?: SpellSlotUsage;
+    itemUsage?: ItemUsage;
+    createdEffects?: string[]; // UUIDs of created effects
+    spentHeroPoint?: boolean;
+}
+
+export interface SpellSlotUsage {
+    entryId: string;
+    rank: number;
+    index?: number; // For prepared spells
+    isFocus?: boolean;
+}
+
+export interface ItemUsage {
+    uuid: string;
+    quantity?: number;
+    uses?: {
+        value: number;
+        max: number;
+    };
+    frequency?: {
+        value: number;
+        max: number;
+    };
+    itemData?: any; // Used to recreate consumables deleted upon reaching 0 quantity
 }
 
 export interface linkedRolls {
-    type: 'damage' | 'attack';
+    type: 'damage' | 'attack' | 'applied-damage';
     msgId: string;
+    targetUuid?: string;
 }
 
 const DynamicCostRegistry: Record<string, (entry: ActionLogEntry) => number> = {

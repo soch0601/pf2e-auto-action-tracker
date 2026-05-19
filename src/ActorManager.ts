@@ -3,12 +3,13 @@ import type { ActorPF2e, ConditionPF2e, CombatantPF2e } from "module-helpers";
 import { type ActionLogEntry, getEntryCost } from "./ActionLogTypes.ts";
 import { AddActionsLibrary } from "./addActionsData/AddActionsLibrary.ts";
 import type { ActionSlot } from "./addActionsData/types.d.ts";
+import { logConsole } from "./logger.ts";
 
 interface TurnSnapshot {
     isQuickened: boolean;
 }
 
-export class ActorHandler {
+export class ActorManager {
 
     // Generic list of slugs that can fill a standard Quickened action slot
     private static readonly QUICKENED_ELIGIBLE_SLUGS = ["strike", "stride", "step", "interact", "sustain-a-spell"];
@@ -230,5 +231,49 @@ export class ActorHandler {
         }
 
         return { slots, overspent };
+    }
+
+    /**
+     * Refunds a spell slot or focus point to the actor.
+     */
+    public static async refundSpellSlot(actor: any, slotInfo: any) {
+        if (!actor || !slotInfo) return;
+
+        if (slotInfo.isFocus) {
+            const focus = actor.system.resources?.focus;
+            if (focus) {
+                const newValue = Math.min(focus.max, (focus.value || 0) + 1);
+                await actor.update({ "system.resources.focus.value": newValue });
+            }
+        } else {
+            const castEntry = actor.items.get(slotInfo.entryId);
+            if (castEntry) {
+                const rank = slotInfo.rank;
+                const index = slotInfo.index;
+                const slotKey = `slot${rank}`;
+                const slots = castEntry.system.slots?.[slotKey];
+
+                if (slots) {
+                    if (castEntry.system.prepared?.value === "prepared") {
+                        if (index !== undefined && slots.prepared[index]) {
+                            await castEntry.update({ [`system.slots.${slotKey}.prepared.${index}.expended`]: false });
+                        }
+                    } else {
+                        await castEntry.update({ [`system.slots.${slotKey}.value`]: (slots.value || 0) + 1 });
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Undoes a specific damage application on a target.
+     */
+    public static async undoDamage(targetUuid: string, appliedDamage: any, cardId: string) {
+        const target = await fromUuid(targetUuid as any);
+        if (target && "undoDamage" in target && appliedDamage) {
+            logConsole(`ActorManager | Undoing damage on ${target.name} via card ${cardId}`);
+            await (target as any).undoDamage(appliedDamage);
+        }
     }
 }

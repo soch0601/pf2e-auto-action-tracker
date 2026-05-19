@@ -31,5 +31,9 @@
   "PF2E_ACTION_TRACKER.Settings.UndoAlert.GMHint": "Whisper you (the GM) and the player when a Move Undo forces an Action Undo.",
   "PF2E_ACTION_TRACKER.Settings.UndoAlert.PlayerHint": "Whisper you when your Move Undo forces an Action Undo.",
   "PF2E_ACTION_TRACKER.Settings.DebugMode.Name": "Debug Mode?",
-  "PF2E_ACTION_TRACKER.Settings.DebugMode.Hint": "Turn on for extra debugging logs in console."
+  "PF2E_ACTION_TRACKER.Settings.DebugMode.Hint": "Turn on for extra debugging logs in console.",
+  "PF2E_ACTION_TRACKER.Settings.EnhancedUndo.Name": "Enhanced Undo",
+  "PF2E_ACTION_TRACKER.Settings.EnhancedUndo.Hint": "When undoing an action in the tracker, automatically revert damage, restore spell slots, and remove applied effects.",
+  "PF2E_ACTION_TRACKER.Settings.EnhancedUndo.GMHint": "When you or a player undo an action, automatically revert damage, restore spell slots, and remove applied effects.",
+  "PF2E_ACTION_TRACKER.Settings.EnhancedUndo.PlayerHint": "When you undo an action, automatically revert damage, restore spell slots, and remove applied effects."
 }

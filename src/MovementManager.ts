@@ -1,9 +1,8 @@
-import { SCOPE } from "./globals.ts";
 import type { ActorPF2e, CombatantPF2e } from "module-helpers";
-import type { ActionLogEntry } from "./ActionManager.ts";
-import { ActorHandler } from "./ActorHandler.ts";
+import type { ActionLogEntry } from "./ActionLogTypes.ts";
+import { ActorManager } from "./ActorManager.ts";
 import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
-import { logError, logInfo, logWarn } from "./logger.ts"
+import { logError, logInfo } from "./logger.ts"
 import { GlobalConfig } from "./globals.ts";
 import { isCurrentUserActiveGM } from "./foundryCompat.ts";
 
@@ -123,7 +122,7 @@ export class MovementManager {
     static measurePath(actor: any, token: any, path: any[], movementMode: string) {
         const { distance } = (canvas.grid as any).measurePath(path, { token });
         const mode = movementMode || "stride";
-        const activeSpeed = ActorHandler.getActiveSpeed(actor, mode) || 30;
+        const activeSpeed = ActorManager.getActiveSpeed(actor, mode) || 30;
         const cost = Math.ceil(distance / activeSpeed);
         const isDifficult = this.checkDifficultTerrain(token, path);
         const label = this.getMovementLabel(distance, cost, mode, isDifficult);
@@ -134,7 +133,7 @@ export class MovementManager {
     static getPathData(actor: ActorPF2e, tokenDoc: any, coordList: any[], mode: string) {
         const path = coordList.map(p => ({ x: p.x, y: p.y }));
         const { distance } = (canvas.grid as any).measurePath(path, { token: tokenDoc.object });
-        const activeSpeed = ActorHandler.getActiveSpeed(actor, mode) || 30;
+        const activeSpeed = ActorManager.getActiveSpeed(actor, mode) || 30;
         const cost = Math.ceil(distance / activeSpeed);
         const isDifficult = this.checkDifficultTerrain(tokenDoc.object, coordList);
         const label = this.getMovementLabel(distance, cost, mode, isDifficult);
@@ -235,7 +234,7 @@ export class MovementManager {
         if (distance > 200) return;
         if (distance === 0 && totalRecorded === 0) return;
         const movementMode = tokenDoc.movementAction === "walk" ? "stride" : (tokenDoc.movementAction || 'stride');
-        const activeSpeed = ActorHandler.getActiveSpeed(actor, movementMode) || 30;
+        const activeSpeed = ActorManager.getActiveSpeed(actor, movementMode) || 30;
         const isDifficult = MovementManager.checkDifficultTerrain(tokenDoc.object, coordList);
 
         // --- 2. EVALUATE CHANGES ---
@@ -323,7 +322,7 @@ export class MovementManager {
     private static async _processCapturedMovement(combatant: CombatantPF2e, tokenDoc: any, coordList: any[]) {
         const tokenId = tokenDoc.id;
         const movementMode = tokenDoc.movementAction || 'stride';
-        const speed = ActorHandler.getActiveSpeed((combatant as any as Combatant).actor as any as ActorPF2e, movementMode);
+        const speed = ActorManager.getActiveSpeed((combatant as any as Combatant).actor as any as ActorPF2e, movementMode);
         // Calculate distance covered in the current coordinate set
         const currentPathDistance = MovementManager._calculateTotalDistance(tokenDoc.object, coordList);
         const lastPathDist = MovementManager._lastInteractionDistance.get(tokenId) || 0;

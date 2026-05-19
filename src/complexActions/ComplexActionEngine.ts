@@ -403,7 +403,7 @@ export class ComplexActionEngine {
             const definition = SPECIAL_ACTIVITIES.find(a => a.slug === newState.activitySlug);
             if (definition) {
                 if (this._isRangeSatisfied(definition.childActions, newState) && this._isRangeClosed(definition.childActions, newState)) {
-                    newState.completedBy = msgId;
+                    newState.completedBy = newState.orderedActivityChildActions[newState.orderedActivityChildActions.length - 1]?.msgId;
                 }
                 else {
                     newState.completedBy = undefined;
