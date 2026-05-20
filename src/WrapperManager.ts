@@ -1,6 +1,6 @@
 import { ChatManager } from "./ChatManager.ts";
 import { ItemManager } from "./ItemManager.ts";
-import { logConsole, logWarn, logInfo } from "./logger.ts";
+import { logWarn } from "./logger.ts";
 import { recentIntent } from "./globals.ts";
 import { findCombatantByMessage } from "./foundryCompat.ts";
 import { SCOPE } from "./globals.ts";
@@ -12,7 +12,7 @@ export class WrapperManager {
 
     static wrapFunctions() {
         if (typeof libWrapper === 'undefined') {
-            logConsole('libWrapper not found! Reroll tracking will be disabled.');
+            logWarn('libWrapper not found! Reroll tracking will be disabled.');
             return;
         }
 
@@ -37,8 +37,6 @@ export class WrapperManager {
             const message = args[0];
             const options = args[1] || {};
             const isHeroPoint = options.resource === "hero-points" || !!options.heroPoint || options.type === "hero-point" || !options.keep;
-
-            logConsole(`WrapperManager | rerollFromMessage called. isHeroPoint: ${isHeroPoint} | options:`, options);
 
             if (message?.id) {
                 const combatant = findCombatantByMessage(game.combat, message);
@@ -111,23 +109,18 @@ export class WrapperManager {
                 // Prioritize the synchronous variable as it is the most "fresh"
                 const lastDamageMsgId = ChatCardRenderer.lastClickedMessageId || (game as any).user.getFlag(SCOPE, "lastDamageMessageId");
 
-                logConsole(`WrapperManager | applyDamage called for ${this.name}. lastDamageMsgId: ${lastDamageMsgId}`);
-
                 if (lastDamageMsgId) {
                     const message = (game as any).messages.get(lastDamageMsgId);
                     if (message) {
                         const combatant = findCombatantByMessage(game.combat, message);
-                        logConsole(`WrapperManager | Resolved combatant for damage: ${combatant?.name || "None"}`);
                         if (combatant) {
                             ChatPendingState.setPendingDamageOrigin(this.uuid, {
                                 originMsgId: lastDamageMsgId,
                                 combatantId: combatant.id
                             });
-                            logConsole(`WrapperManager | Set pending origin for ${this.name} (${this.uuid})`);
                         }
-                    } else {
-                        logConsole(`WrapperManager | FAILED to find message ${lastDamageMsgId}`);
                     }
+
                     // Clean up both after a short delay to allow parallel applyDamage calls (e.g., area healing/damage) to resolve
                     setTimeout(async () => {
                         if (ChatCardRenderer.lastClickedMessageId === lastDamageMsgId) {
@@ -160,48 +153,30 @@ export class WrapperManager {
                 const event = args.find(a => a instanceof Event);
                 const isToMessage = methodName === "toMessage";
 
-                // Default: toMessage is a link (false), use/consume is a use (true)
                 let isUse = !isToMessage;
 
                 if (event) {
                     const target = event.target as HTMLElement;
-                    // Check if the click was on an explicit action button/element
                     const isExplicitAction = !!target.closest('[data-action*="use"], [data-action*="consume"], [data-action*="activate"], [data-action*="cast"], .use-item');
-                    // Check if the click was on a "post to chat" link/button
                     const isLinkClick = !!target.closest('[data-action$="to-chat"], [data-action$="to-message"], [data-action="toMessage"], .item-to-chat');
 
                     if (isToMessage) {
-                        // toMessage is usually a link, unless it's triggered by an explicit action button.
-                        // However, if the item doesn't have a dedicated "Use" button (like basic feats),
-                        // then the link click ITSELF counts as the use.
+                        // toMessage is a link unless there is no dedicated use from frequency (PF2E system) - so count it if needed
                         const requiresUse = ItemManager.itemRequiresExplicitUse(this);
                         isUse = isExplicitAction || (isLinkClick && !requiresUse);
                     } else if (isLinkClick) {
-                        // use/consume is usually an action, unless it's somehow triggered by a link
                         isUse = false;
                     }
 
-                    logInfo(`WrapperManager | ${methodName} | isUse: ${isUse}`, {
-                        target: target.tagName,
-                        closestAction: target.closest('[data-action]')?.getAttribute('data-action'),
-                        isExplicitAction,
-                        isLinkClick
-                    });
                 } else if (isToMessage) {
-                    // No event + toMessage. 
-                    // In PF2e sheets, the "Use" button for actions and feats often calls toMessage 
-                    // programmatically without an event. Direct link clicks always have an event.
+                    // No event + toMessage.
                     const item = this as any;
                     const type = item.type;
                     const name = item.name;
 
-                    // Feats and Actions often use toMessage as their primary activation method
                     if (["action", "feat"].includes(type)) {
                         isUse = true;
                     }
-                    logInfo(`WrapperManager | ${methodName} | No Event | Item: ${name} | Type: ${type} | isUse: ${isUse}`);
-                } else {
-                    logInfo(`WrapperManager | ${methodName} | No Event | isUse: ${isUse}`);
                 }
 
                 if (detectionKey && isUse) {
@@ -215,7 +190,6 @@ export class WrapperManager {
                     usage = { uuid: this.uuid };
                     const system = this.system || {};
 
-                    // PF2e might store quantity on the item directly or in system
                     const qty = system.quantity !== undefined ? system.quantity : (this as any).quantity;
 
                     if (qty !== undefined) usage.quantity = foundry.utils.deepClone(qty);

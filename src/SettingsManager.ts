@@ -74,6 +74,15 @@ export class SettingsManager {
             default: false
         });
 
+        settings.register(SCOPE, "whisperUndoCleanup", {
+            name: "PF2E_ACTION_TRACKER.Settings.WhisperUndoCleanup.Name",
+            hint: getHint("WhisperUndoCleanup", "PF2E_ACTION_TRACKER.Settings.WhisperUndoCleanup.Hint"),
+            scope: "world",
+            config: true,
+            type: Boolean,
+            default: true
+        });
+
         settings.register(SCOPE, "undoAlert", {
             name: "PF2E_ACTION_TRACKER.Settings.UndoAlert.Name",
             hint: getHint("UndoAlert", "PF2E_ACTION_TRACKER.Settings.UndoAlert.Hint"),
@@ -182,10 +191,41 @@ export class SettingsManager {
         moduleTab.find(".form-group:not(.action-tracker-setting-header)").on("click", (event) => {
             if ($(event.target).is("input, label, a, button")) return;
             const checkbox = $(event.currentTarget).find('input[type="checkbox"]');
-            if (checkbox.length) {
+            if (checkbox.length && !checkbox.prop("disabled")) {
                 checkbox.prop("checked", !checkbox.prop("checked")).trigger("change");
             }
         });
+
+        // Dynamic disable/enable whisperUndoCleanup based on enhancedUndo state
+        const enhancedUndoInput = moduleTab.find(`input[name="${SCOPE}.enhancedUndo"]`);
+        const whisperUndoCleanupInput = moduleTab.find(`input[name="${SCOPE}.whisperUndoCleanup"]`);
+
+        if (enhancedUndoInput.length && whisperUndoCleanupInput.length) {
+            const updateUndoCleanupState = () => {
+                const isEnhancedEnabled = enhancedUndoInput.prop("checked");
+                const cleanupRow = whisperUndoCleanupInput.closest(".form-group");
+                
+                if (isEnhancedEnabled) {
+                    whisperUndoCleanupInput.prop("disabled", true);
+                    cleanupRow.addClass("action-tracker-disabled-row");
+                    cleanupRow.css({
+                        "opacity": "0.5",
+                        "pointer-events": "none"
+                    });
+                } else {
+                    whisperUndoCleanupInput.prop("disabled", false);
+                    cleanupRow.removeClass("action-tracker-disabled-row");
+                    cleanupRow.css({
+                        "opacity": "1",
+                        "pointer-events": "auto"
+                    });
+                }
+            };
+
+            enhancedUndoInput.on("change", updateUndoCleanupState);
+            // Run initially upon open
+            updateUndoCleanupState();
+        }
 
         // Dynamic Role-based Hints (Final fallback if registration was too early)
         const isGM = (game as any).user?.isGM ?? true;

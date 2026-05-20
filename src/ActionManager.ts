@@ -1,5 +1,5 @@
 import { SCOPE } from "./globals.ts";
-import { logConsole, logError } from "./logger.ts";
+import { logError, logWarn, logInfo } from "./logger.ts";
 import { SettingsManager } from "./SettingsManager.ts";
 import { ActorManager } from "./ActorManager.ts";
 import type { ActorPF2e, CombatantPF2e } from "module-helpers";
@@ -65,11 +65,9 @@ export class ActionManager {
             if (isMatch) {
                 const linkedMessages = [...(entry.linkedMessages || []), { type: 'attack', msgId } as const];
                 await this.editAction(combatant, entry.msgId, { linkedMessages });
-                logConsole(`ActionManager | Successfully linked spell attack ${msgId} to action ${entry.msgId}`);
                 return true;
             }
         }
-        logConsole(`ActionManager | Failed to link spell attack ${msgId} to any action!`);
         return false;
     }
 
@@ -134,7 +132,7 @@ export class ActionManager {
             } else {
                 await stunnedCondition.update({ "system.value.value": newVal } as any);
             }
-            logConsole(`RAW: Decremented Stunned on ${actor.name} by ${stunnedCost}.`);
+            logInfo(`RAW: Decremented Stunned on ${actor.name} by ${stunnedCost}.`);
         }
 
         // 4. ATOMIC UPDATE
@@ -444,16 +442,76 @@ export class ActionManager {
             if (SettingsManager.get("enhancedUndo")) {
                 await this.performEnhancedUndo(combatant, entry);
             } else {
-                // If enhanced undo is off, just delete the message
-                await ChatManager.deleteMessage(msgId);
+                // If enhanced undo is off, do NOT delete any chat cards
+                // Whisper the GM suggested manual cleanups for pertinent system resources
+                const actor = (combatant as any).actor;
+                if (actor) {
+                    const cleanups: string[] = [];
 
-                // Ensure child chat cards are still cleaned up
-                if (entry.ComplexActionState) {
-                    const children = ComplexActionEngine.getAllChildActions(entry.ComplexActionState);
-                    await Promise.allSettled(children.map(child => ChatManager.deleteMessage(child.msgId)));
+                    const children = entry.ComplexActionState
+                        ? ComplexActionEngine.getAllChildActions(entry.ComplexActionState)
+                        : [];
 
-                    if (entry.ComplexActionState.combinedDamageMessageId) {
-                        await ChatManager.deleteMessage(entry.ComplexActionState.combinedDamageMessageId);
+                    // Gather target damage applications
+                    const damageApps = (entry.linkedMessages || []).filter(m => m.type === "applied-damage");
+                    const childDamageApps = children
+                        .flatMap(c => c.linkedMessages || [])
+                        .filter(m => m.type === "applied-damage");
+
+                    if (damageApps.length > 0 || childDamageApps.length > 0) {
+                        cleanups.push("Damage Applications (revert damage on target sheets)");
+                    }
+
+                    // Spell slots
+                    if (entry.spellSlot) {
+                        cleanups.push(`Spell Slots (Rank ${entry.spellSlot.rank} slot for "${entry.label}")`);
+                    }
+                    for (const child of children) {
+                        if (child.spellSlot) {
+                            cleanups.push(`Spell Slots (Rank ${child.spellSlot.rank} slot for "${child.label}")`);
+                        }
+                    }
+
+                    // Item usages
+                    const hasItemUsage = (u: any) => u.itemUsage && (
+                        u.itemUsage.quantity !== undefined ||
+                        u.itemUsage.uses !== undefined ||
+                        u.itemUsage.frequency !== undefined ||
+                        u.itemUsage.itemData !== undefined
+                    );
+                    if (hasItemUsage(entry)) {
+                        cleanups.push(`Item Consumption (Quantity/Uses for "${entry.label}")`);
+                    }
+                    for (const child of children) {
+                        if (hasItemUsage(child)) {
+                            cleanups.push(`Item Consumption (Quantity/Uses for "${child.label}")`);
+                        }
+                    }
+
+                    // Hero Points
+                    const hasSpentHeroPoint = entry.spentHeroPoint || children.some(c => c.spentHeroPoint);
+                    if (hasSpentHeroPoint) {
+                        cleanups.push("Hero Points spent");
+                    }
+
+                    if (cleanups.length > 0 && SettingsManager.get("whisperUndoCleanup")) {
+                        const cleanupList = cleanups.map(c => `<li>${c}</li>`).join("");
+                        const whisperContent = `
+                            <div class="pf2e-auto-action-tracker-alert">
+                                <strong>Manual Reversion Suggested:</strong>
+                                <p>Action <strong>${entry.label}</strong> was removed on the tracker. Since Enhanced Undo is disabled, you should consider manually reverting or cleaning up:</p>
+                                <ul>${cleanupList}</ul>
+                            </div>
+                        `;
+                        const gmUserIds = game.users.filter((u: any) => u.isGM).map((u: any) => u.id);
+                        await ChatMessage.create({
+                            content: whisperContent,
+                            whisper: gmUserIds,
+                            speaker: { alias: "PF2E Action Tracker" },
+                            flags: {
+                                [SCOPE]: { isAutoAlert: true }
+                            } as any
+                        });
                     }
                 }
             }
@@ -468,12 +526,10 @@ export class ActionManager {
      */
     private static async performEnhancedUndo(combatant: CombatantPF2e, entry: ActionLogEntry) {
         const c = combatant as any;
-        logConsole(`ActionManager | performEnhancedUndo starting for ${entry.label} (${entry.msgId}) | type: ${entry.type} | combatant: ${c.id} | actor: ${c.actor?.uuid || c.actor?.id} | token: ${c.token?.uuid}`);
 
         // 1. Handle Complex Action Children (Recursion)
         if (entry.ComplexActionState) {
             const children = ComplexActionEngine.getAllChildActions(entry.ComplexActionState);
-            logConsole(`ActionManager | performEnhancedUndo | Complex action child count: ${children.length}`);
 
             // Explicitly collect child primary and linked message IDs as a failsafe
             const failsafeIds: string[] = [];
@@ -493,38 +549,32 @@ export class ActionManager {
             // Failsafe cleanup of any remaining child messages
             if (failsafeIds.length > 0) {
                 const { ChatManager } = await import("./ChatManager.ts");
-                logConsole(`ActionManager | Failsafe deleting child messages: ${failsafeIds.join(', ')}`);
                 await Promise.allSettled(failsafeIds.map(id => ChatManager.deleteMessage(id)));
             }
 
             // Cleanup combined damage message if exists
             if (entry.ComplexActionState.combinedDamageMessageId) {
                 const { ChatManager } = await import("./ChatManager.ts");
-                logConsole(`ActionManager | Deleting combined damage message: ${entry.ComplexActionState.combinedDamageMessageId}`);
                 await ChatManager.deleteMessage(entry.ComplexActionState.combinedDamageMessageId);
             }
         }
 
         // 2. Undo Damage Applications
         const damageApplications = (entry.linkedMessages || []).filter(m => m.type === 'applied-damage');
-        logConsole(`ActionManager | performEnhancedUndo | Found ${damageApplications.length} damage applications to undo.`);
         for (const app of damageApplications) {
-            logConsole(`ActionManager | performEnhancedUndo | Reverting damage application on ${app.targetUuid} via card ${app.msgId}`);
             const message = (game as any).messages.get(app.msgId);
             if (!message) {
-                logConsole(`ActionManager | performEnhancedUndo | WARNING: Could not find ChatMessage ${app.msgId} in game.messages!`);
+                logWarn(`ActionManager | Could not find ChatMessage ${app.msgId} of type ${app.type} in game.messages to cleanup with enhanced undo!`);
             }
             const appliedDamage = message?.flags?.pf2e?.appliedDamage;
             if (appliedDamage && app.targetUuid) {
-                if (appliedDamage.isReverted) {
-                    logConsole(`ActionManager | Skipping damage undo for ${app.targetUuid} because it was already manually reverted.`);
-                } else {
+                if (!appliedDamage.isReverted) {
                     await ActorManager.undoDamage(app.targetUuid, appliedDamage, app.msgId);
                 }
                 const { ChatManager } = await import("./ChatManager.ts");
                 await ChatManager.deleteMessage(app.msgId);
             } else {
-                logConsole(`ActionManager | performEnhancedUndo | WARNING: Message flags or targetUuid missing. Has appliedDamage: ${!!appliedDamage} | Has targetUuid: ${!!app.targetUuid}`);
+                logWarn(`ActionManager | Message flags or targetUuid missing. Has appliedDamage: ${!!appliedDamage} | Has targetUuid: ${!!app.targetUuid}`);
             }
         }
 
@@ -555,7 +605,6 @@ export class ActionManager {
                 const current = actor.system.resources?.heroPoints?.value ?? 0;
                 const max = actor.system.resources?.heroPoints?.max ?? 3;
                 const newValue = Math.min(max, current + 1);
-                logConsole(`ActionManager | Refunding Hero Point on ${actor.name}. Value: ${current} -> ${newValue}`);
                 await actor.update({ "system.resources.heroPoints.value": newValue });
             }
         }
@@ -719,7 +768,6 @@ export class ActionManager {
     }
 
     private static async _linkDamageApplicationToActionInternal(combatant: CombatantPF2e, originMsgId: string, targetUuid: string, cardId: string) {
-        logConsole(`ActionManager | linkDamageApplicationToAction called. Combatant: ${(combatant as any).name} | OriginMsgId: ${originMsgId} | TargetUuid: ${targetUuid} | CardId: ${cardId}`);
         const originMessage = (game as any).messages.get(originMsgId);
         const originatingActionId = originMessage?.getFlag(SCOPE, "originatingActionId");
 
@@ -731,18 +779,12 @@ export class ActionManager {
         );
 
         if (entry) {
-            logConsole(`ActionManager | Found matching action entry: ${entry.label} (${entry.msgId})`);
             const linkedMessages = [...entry.linkedMessages];
             // Prevent duplicate logs for the same card
             if (!linkedMessages.some(m => m.type === 'applied-damage' && m.msgId === cardId)) {
                 linkedMessages.push({ type: 'applied-damage', msgId: cardId, targetUuid });
                 await this.editAction(combatant, entry.msgId, { linkedMessages });
-                logConsole(`ActionManager | Linked damage application to action ${entry.label}. Total links: ${linkedMessages.length}`);
-            } else {
-                logConsole(`ActionManager | Damage application card ${cardId} is already linked.`);
             }
-        } else {
-            logConsole(`ActionManager | FAILED to find action entry for damage application. Origin: ${originMsgId}`);
         }
     }
 }

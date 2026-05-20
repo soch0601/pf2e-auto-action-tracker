@@ -1,6 +1,5 @@
 import { SCOPE, recentIntent } from "./globals.ts";
 import { getActorAndTokenFromSheet, findCombatantByMessage, findCombatantById, findCombatantByTokenOrActor } from "./foundryCompat.ts";
-import { logConsole } from "./logger.ts";
 import { ChatPendingState } from "./ChatPendingState.ts";
 
 export class ChatCardRenderer {
@@ -63,12 +62,6 @@ export class ChatCardRenderer {
                             frequency: item.system.frequency !== undefined ? foundry.utils.deepClone(item.system.frequency) : undefined
                         }, actor.token?.uuid);
                     }
-                } else {
-                    logConsole(`ChatCardRenderer | Intent Tracking: No ID/Slug or Actor found`, {
-                        itemId, slug, actorId: finalActorId, tokenId: finalTokenId,
-                        sheetActorId,
-                        dataset: btn.dataset
-                    });
                 }
             }
 

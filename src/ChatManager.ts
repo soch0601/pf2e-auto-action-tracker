@@ -4,7 +4,7 @@ import type { ActorPF2e, CombatantPF2e } from "module-helpers";
 import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
 import { SettingsManager } from "./SettingsManager.ts";
 import { ActorManager } from "./ActorManager.ts";
-import { logConsole, logError } from "./logger.ts";
+import { logError, logInfo } from "./logger.ts";
 import * as Detectors from "./chatTypeDetectors/index.ts";
 import type { IActionDetails, DetectedAction } from "./chatTypeDetectors/IActionDetector.ts";
 import { findCombatantByMessage, findCombatantById, getOpenApplications, isCurrentUserActiveGM, renderHandlebarsTemplate } from "./foundryCompat.ts";
@@ -41,7 +41,6 @@ export class ChatManager {
             if (origin) {
                 const { originMsgId, combatantId } = origin;
                 const targetCombatant = findCombatantById(game.combat, combatantId);
-                logConsole(`ChatManager | handleChatPayload | Found origin in map. targetCombatant: ${(targetCombatant as any)?.name || "None"}`);
                 if (targetCombatant) {
                     const speaker = message.speaker || {};
                     let actorUuid = message.actor?.uuid;
@@ -87,7 +86,6 @@ export class ChatManager {
             const slug = pf2eFlags.context.action || getSlugFromMsgFlavor(htmlPool) || "attack";
 
             const rawItemUsageFromFlag = message.getFlag(SCOPE, "itemUsage") as any;
-            logConsole(`ChatManager | handleChatPayload | Spell Attack Roll | rawItemUsageFromFlag: ${!!rawItemUsageFromFlag}`);
 
             const isSpellAttack = message.item?.type === "spell" || slug.toLowerCase().includes("spell");
             if (isSpellAttack) {
@@ -108,14 +106,14 @@ export class ChatManager {
             const oldMsgId = this.popFromRerollQueue(c.id);
 
             if (!oldMsgId) {
-                logConsole("Reroll detected but the queue was empty.");
+                logInfo("Reroll detected but the queue was empty.");
                 return;
             }
 
             const { ActionManager } = await import("./ActionManager.ts");
             const action = ActionManager.getActionById(combatant, oldMsgId);
             if (!action) {
-                logConsole(`Reroll detected for ${oldMsgId}, but no matching action was found in history.`);
+                logInfo(`Reroll detected for ${oldMsgId}, but no matching action was found in history.`);
                 return;
             }
 
@@ -124,7 +122,6 @@ export class ChatManager {
                 msgId: message.id,
                 spentHeroPoint: !!spentHeroPoint
             });
-            logConsole(`Reroll processed: ${oldMsgId} -> ${message.id} | spentHeroPoint: ${!!spentHeroPoint}`);
             return;
         }
 
@@ -437,7 +434,6 @@ export class ChatManager {
         // 2. Item Usage
         const itemUsage = ChatPendingState.getPendingItemUsage(actorUuid, tokenId);
         if (itemUsage) {
-            logConsole(`ChatManager | handlePreCreateChatMessage | itemUsage found for ${actorUuid}. Has itemData: ${!!itemUsage.itemData}`);
             message.updateSource({ flags: { [SCOPE]: { itemUsage: itemUsage } } } as any);
         }
 
@@ -455,7 +451,6 @@ export class ChatManager {
             const isHeroPoint = ChatPendingState.getPendingReroll(actorUuid);
             if (isHeroPoint) {
                 message.updateSource({ flags: { [SCOPE]: { heroPointSpent: true } } } as any);
-                logConsole(`ChatManager | handlePreCreateChatMessage | Injected heroPointSpent flag into reroll message.`);
             }
         }
 

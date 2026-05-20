@@ -9,7 +9,7 @@ import { MovementManager } from "./MovementManager";
 import { WrapperManager } from "./WrapperManager";
 import { SocketsManager } from "./SocketManager";
 import { ChatMessagePF2e, CombatantPF2e, EncounterPF2e } from "module-helpers"
-import { logConsole, logError, logInfo } from "./logger";
+import { logError, logInfo } from "./logger";
 import { SCOPE, recentIntent } from "./globals";
 import { runAllConflictChecks } from "./otherModConflicts";
 import { findPf2eHudTracker } from "./trackerAdapters";
@@ -100,7 +100,6 @@ Hooks.on("createChatMessage", async (message: ChatMessagePF2e) => {
         const foundC = findCombatantByMessage(game.combat, message);
         const directOrigin = (message.flags as any)?.[SCOPE]?.damageOrigin;
         const flagOrigin = (message as any).getFlag(SCOPE, "damageOrigin");
-        logConsole(`main.ts | createChatMessage | damage-taken detected. Speaker: ${message.speaker?.alias} | Combatant Found: ${foundC?.name || "None"} (ID: ${foundC?.id || "None"}) | Direct Origin: ${!!directOrigin} | Flag Origin: ${!!flagOrigin}`, directOrigin || flagOrigin);
     }
 
     let cId = findCombatantByMessage(game.combat, message)?.id;
@@ -110,7 +109,6 @@ Hooks.on("createChatMessage", async (message: ChatMessagePF2e) => {
         const origin = ((message as any).getFlag(SCOPE, "damageOrigin") || (message.flags as any)?.[SCOPE]?.damageOrigin) as { originMsgId: string, combatantId: string } | undefined;
         if (origin?.combatantId) {
             cId = origin.combatantId;
-            logConsole(`main.ts | createChatMessage | Fallback resolved cId: ${cId} for Speaker: ${message.speaker?.alias}`);
         }
     }
 
@@ -166,7 +164,7 @@ Hooks.on("deleteCombat", async (combat: EncounterPF2e) => {
     ChatManager.clearRerollQueue();
     recentIntent.clear();
 
-    logConsole("Action Tracker: Cleanup complete for all actors in ended combat.");
+    logInfo("Action Tracker: Cleanup complete for all actors in ended combat.");
 });
 
 // Pre-Create Chat Hook (Runs on the client that originated the message)

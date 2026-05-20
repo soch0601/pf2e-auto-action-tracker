@@ -2,7 +2,7 @@ import type { ActorPF2e, CombatantPF2e } from "module-helpers";
 import type { ActionLogEntry } from "./ActionLogTypes.ts";
 import { ActorManager } from "./ActorManager.ts";
 import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
-import { logError, logInfo } from "./logger.ts"
+import { logError } from "./logger.ts"
 import { GlobalConfig } from "./globals.ts";
 import { isCurrentUserActiveGM } from "./foundryCompat.ts";
 
@@ -20,7 +20,6 @@ export class MovementManager {
     static async broadcastReset(tokenId?: string) {
         const { SocketsManager } = await import("./SocketManager.ts");
         if (!SocketsManager.socket) return;
-        logInfo(`MovementManager | Broadcasting Reset | Token: ${tokenId || "ALL"}`);
         SocketsManager.socket.executeForEveryone("resetMovementHistory", { tokenId });
     }
 

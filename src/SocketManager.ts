@@ -1,6 +1,6 @@
 import { SCOPE } from "./globals.ts";
 import { SettingsManager } from "./SettingsManager.ts";
-import { logError, notifyWarn, logInfo } from "./logger.ts";
+import { logError, notifyWarn } from "./logger.ts";
 
 declare const socketlib: any;
 
@@ -136,7 +136,6 @@ export class SocketsManager {
      * Handler for history reset sent from another client
      */
     private static async _handleResetHistoryRequest(data: any) {
-        logInfo(`[Socket] Received History Reset | Token: ${data.tokenId || "ALL"} | Current User: ${game.user?.name}`);
         const { MovementManager } = await import("./MovementManager.ts");
         MovementManager.resetCapturedHistory(data.tokenId);
     }

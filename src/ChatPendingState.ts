@@ -1,4 +1,3 @@
-import { logConsole } from "./logger.ts";
 import type { SpellSlotUsage } from "./ActionLogTypes.ts";
 
 export class ChatPendingState {
@@ -37,7 +36,6 @@ export class ChatPendingState {
 
     public static getPendingDamageOrigin(actorUuid: string): { originMsgId: string, combatantId: string } | undefined {
         const origin = this.pendingDamageOrigins.get(actorUuid);
-        logConsole(`ChatPendingState | getPendingDamageOrigin for ${actorUuid}. Found: ${!!origin}`, origin);
         if (origin) {
             this.pendingDamageOrigins.delete(actorUuid);
         }

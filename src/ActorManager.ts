@@ -3,7 +3,6 @@ import type { ActorPF2e, ConditionPF2e, CombatantPF2e } from "module-helpers";
 import { type ActionLogEntry, getEntryCost } from "./ActionLogTypes.ts";
 import { AddActionsLibrary } from "./addActionsData/AddActionsLibrary.ts";
 import type { ActionSlot } from "./addActionsData/types.d.ts";
-import { logConsole } from "./logger.ts";
 
 interface TurnSnapshot {
     isQuickened: boolean;
@@ -208,7 +207,7 @@ export class ActorManager {
 
                     const slug = logEntry.slug?.toLowerCase() || "";
                     const isAllowed = s.definition?.allowedSlugs?.includes(slug) ?? false;
-                    
+
                     // Extra slots (like Quickened) usually require the action to be eligible
                     // unless it's a specific named allowed slug.
                     if (s.definition?.slug === 'quickened') {
@@ -272,7 +271,6 @@ export class ActorManager {
     public static async undoDamage(targetUuid: string, appliedDamage: any, cardId: string) {
         const target = await fromUuid(targetUuid as any);
         if (target && "undoDamage" in target && appliedDamage) {
-            logConsole(`ActorManager | Undoing damage on ${target.name} via card ${cardId}`);
             await (target as any).undoDamage(appliedDamage);
         }
     }
