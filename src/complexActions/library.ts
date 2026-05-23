@@ -70,7 +70,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
                         ],
                     },
                     { type: 'OPERATOR', value: 'AND' },
-                    { type: 'ACTION', properties: { type: 'skill', subtype: 'athletics', minOccurrences: 0, maxOccurrences: 500 } },
+                    { type: 'ACTION', properties: { type: 'skill', subtype: 'shove', minOccurrences: 0, maxOccurrences: 500 } },
                 ]
             },
             { type: 'OPERATOR', value: 'THEN' },
@@ -278,7 +278,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
                 ]
             },
             { type: 'OPERATOR', value: 'THEN' },
-            { type: 'ACTION', properties: { type: 'action', subtype: 'interact' } },
+            { type: 'ACTION', properties: { type: 'action', subtype: 'interact:reload' } },
         ]
     },
     {
@@ -294,7 +294,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         childActions: [
             { type: 'ACTION', properties: { type: 'move', subtype: 'stride' } },
             { type: 'OPERATOR', value: 'THEN' },
-            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 1, maxOccurrences: 3, modifiers: ['fixedMAP', 'manualFinish'] } }
+            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 1, maxOccurrences: 3, modifiers: ['fixedMAP2', 'deferMAP', 'manualFinish'] } }
         ]
     },
     {
@@ -336,7 +336,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         name: 'Defensive Advance',
         slug: 'defensive-advance',
         childActions: [
-            { type: 'ACTION', properties: { type: 'action', subtype: 'raise-shield' } },
+            { type: 'ACTION', properties: { type: 'action', subtype: 'raise-a-shield' } },
             { type: 'OPERATOR', value: 'THEN' },
             { type: 'ACTION', properties: { type: 'move', subtype: 'stride' } },
             { type: 'OPERATOR', value: 'THEN' },
@@ -384,7 +384,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         childActions: [
             { type: 'ACTION', properties: { type: 'move', subtype: 'step' } },
             { type: 'OPERATOR', value: 'THEN' },
-            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 2, maxOccurrences: 2, modifiers: ['fixedMAP', 'deferMAP'] } }
+            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 2, maxOccurrences: 2, modifiers: ['deferMAP'] } }
         ]
     },
     {
@@ -417,7 +417,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         name: 'Double Shot',
         slug: 'double-shot',
         childActions: [
-            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 2, maxOccurrences: 2, modifiers: ['fixedMAP', 'deferMAP'] } }
+            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 2, maxOccurrences: 2, modifiers: ['fixedMAP2', 'deferMAP'] } }
         ]
     },
     {
@@ -491,6 +491,13 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         ]
     },
     {
+        name: 'Fake Out',
+        slug: 'fake-out',
+        childActions: [
+            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike' } }
+        ]
+    },
+    {
         name: 'Falcon Swoop',
         slug: 'falcon-swoop',
         childActions: [
@@ -507,7 +514,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         childActions: [
             { type: 'ACTION', properties: { type: 'action', subtype: 'interact' } },
             { type: 'OPERATOR', value: 'THEN' },
-            { type: 'ACTION', properties: { type: 'skill', subtype: 'sneak' } }
+            { type: 'ACTION', properties: { type: 'skill', subtype: 'sneak', modifiers: ['manualFinish'] } }
         ]
     },
     {
@@ -622,7 +629,15 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         childActions: [
             { type: 'ACTION', properties: { type: 'move', subtype: 'fly' } },
             { type: 'OPERATOR', value: 'THEN' },
-            { type: 'ACTION', properties: { type: 'action', subtype: 'interact' } }
+            {
+                type: 'GROUP', value: [
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact:draw (1H)' } },
+                    { type: 'OPERATOR', value: 'XOR' },
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact:draw (2H)' } },
+                    { type: 'OPERATOR', value: 'XOR' },
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact' } }
+                ]
+            }
         ]
     },
     {
@@ -696,7 +711,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
             { type: 'OPERATOR', value: 'THEN' },
             { type: 'ACTION', properties: { type: 'attack', subtype: 'strike' } },
             { type: 'OPERATOR', value: 'THEN' },
-            { type: 'ACTION', properties: { type: 'skill', subtype: 'sneak' } }
+            { type: 'ACTION', properties: { type: 'skill', subtype: 'sneak', modifiers: ['manualFinish'] } }
         ]
     },
     //GUSTING SPELL - how to do?
@@ -722,7 +737,13 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
             { type: 'OPERATOR', value: 'THEN' },
             { type: 'ACTION', properties: { type: 'move', subtype: 'stride' } },
             { type: 'OPERATOR', value: 'THEN' },
-            { type: 'ACTION', properties: { type: 'action', subtype: 'interact' } }
+            {
+                type: 'GROUP', value: [
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact:draw (1H)' } },
+                    { type: 'OPERATOR', value: 'XOR' },
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact:draw (2H)' } },
+                ]
+            }
         ]
     },
     {
@@ -734,15 +755,15 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
     },
     {
         name: 'Infiltrator\'s Reload',
-        slug: 'infiltrators-reload',
+        slug: 'infiltrator\'s-reload',
         childActions: [
-            { type: 'ACTION', properties: { type: 'action', subtype: 'interact' } },
+            { type: 'ACTION', properties: { type: 'action', subtype: 'interact:reload' } },
             { type: 'OPERATOR', value: 'THEN' },
             {
                 type: 'GROUP', value: [
                     { type: 'ACTION', properties: { type: 'skill', subtype: 'hide' } },
                     { type: 'OPERATOR', value: 'XOR' },
-                    { type: 'ACTION', properties: { type: 'skill', subtype: 'sneak' } },
+                    { type: 'ACTION', properties: { type: 'skill', subtype: 'sneak', modifiers: ['manualFinish'] } },
                     { type: 'OPERATOR', value: 'XOR' },
                     { type: 'ACTION', properties: { type: 'action', subtype: 'take-cover' } }
                 ]
@@ -763,16 +784,17 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         slug: 'into-the-fray',
         childActions: [
             {
-                type: 'GROUP', value: [
-                    { type: 'ACTION', properties: { type: 'move', subtype: 'leap' } },
+                type: 'GROUP',
+                value: [
+                    { type: 'ACTION', properties: { type: 'move', subtype: 'leap', modifiers: ['allowInterruption'] } },
                     { type: 'OPERATOR', value: 'XOR' },
-                    { type: 'ACTION', properties: { type: 'move', subtype: 'stride' } },
+                    { type: 'ACTION', properties: { type: 'move', subtype: 'stride', modifiers: ['allowInterruption'] } },
                     { type: 'OPERATOR', value: 'XOR' },
-                    { type: 'ACTION', properties: { type: 'move', subtype: 'swim' } }
+                    { type: 'ACTION', properties: { type: 'move', subtype: 'swim', modifiers: ['allowInterruption'] } }
                 ]
             },
             { type: 'OPERATOR', value: 'AND' },
-            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 2, maxOccurrences: 2, modifiers: ['deferMAP', 'allowInterruption'] } }
+            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 2, maxOccurrences: 2, modifiers: ['deferMAP'] } }
         ]
     },
     {
@@ -804,7 +826,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
             { type: 'OPERATOR', value: 'THEN' },
             { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 0, maxOccurrences: 1 } },
             { type: 'OPERATOR', value: 'THEN' },
-            { type: 'ACTION', properties: { type: 'move', subtype: 'stride' } }
+            { type: 'ACTION', properties: { type: 'move', subtype: 'stride', modifiers: ['manualFinish'] } }
         ]
     },
     {
@@ -846,7 +868,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         name: 'Magpie Snatch',
         slug: 'magpie-snatch',
         childActions: [
-            { type: 'ACTION', properties: { type: 'move', subtype: 'stride', minOccurrences: 2, maxOccurrences: 2 } },
+            { type: 'ACTION', properties: { type: 'move', subtype: 'stride', minOccurrences: 2, maxOccurrences: 2, modifiers: ['allowInterruption', 'manualFinish'] } },
             { type: 'OPERATOR', value: 'AND' },
             { type: 'ACTION', properties: { type: 'interact', minOccurrences: 0, maxOccurrences: 1 } }
         ]
@@ -950,7 +972,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         childActions: [
             { type: 'ACTION', properties: { type: 'move', subtype: 'leap' } },
             { type: 'OPERATOR', value: 'AND' },
-            { type: 'ACTION', properties: { type: 'action', subtype: 'interact' } }
+            { type: 'ACTION', properties: { type: 'action', subtype: 'interact:reload' } }
         ]
     },
     {
@@ -966,7 +988,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         name: 'Paired Shots',
         slug: 'paired-shots',
         childActions: [
-            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 2, maxOccurrences: 2, modifiers: ['fixedMAP', 'combineDamage'] } }
+            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 2, maxOccurrences: 2, modifiers: ['combineDamage'] } }
         ]
     },
     {
@@ -1096,16 +1118,30 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         name: 'Quick Stow (Swordmaster)',
         slug: 'quick-stow-swordmaster',
         childActions: [
-            { type: 'ACTION', properties: { type: 'action', subtype: 'interact' } },
+            { type: 'ACTION', properties: { type: 'action', subtype: 'interact:sheathe' } },
             { type: 'OPERATOR', value: 'THEN' },
-            { type: 'ACTION', properties: { type: 'action', subtype: 'interact' } }
+            {
+                type: 'GROUP', value: [
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact:draw (1H)' } },
+                    { type: 'OPERATOR', value: 'XOR' },
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact:draw (2H)' } },
+                    { type: 'OPERATOR', value: 'XOR' },
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact' } }
+                ]
+            }
         ]
     },
     {
         name: 'Quick Draw',
         slug: 'quick-draw',
         childActions: [
-            { type: 'ACTION', properties: { type: 'action', subtype: 'interact' } },
+            {
+                type: 'GROUP', value: [
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact:draw (1H)' } },
+                    { type: 'OPERATOR', value: 'OR' },
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact:draw (2H)' } },
+                ]
+            },
             { type: 'OPERATOR', value: 'THEN' },
             { type: 'ACTION', properties: { type: 'attack', subtype: 'strike' } }
         ]
@@ -1117,6 +1153,13 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
             { type: 'ACTION', properties: { type: 'move', subtype: 'stride' } },
             { type: 'OPERATOR', value: 'THEN' },
             { type: 'ACTION', properties: { type: 'attack', subtype: 'strike' } }
+        ]
+    },
+    {
+        name: 'Rapid Stinging',
+        slug: 'rapid-stinging',
+        childActions: [
+            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 1, maxOccurrences: 3, modifiers: ['deferMAP'] } }
         ]
     },
     {
@@ -1177,7 +1220,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         childActions: [
             { type: 'ACTION', properties: { type: 'move', subtype: 'stride' } },
             { type: 'OPERATOR', value: 'THEN' },
-            { type: 'ACTION', properties: { type: 'action', subtype: 'interact' } }
+            { type: 'ACTION', properties: { type: 'action', subtype: 'interact:reload' } }
         ]
     },
     {
@@ -1225,7 +1268,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         name: 'Shielded Attrition',
         slug: 'shielded-attrition',
         childActions: [
-            { type: 'ACTION', properties: { type: 'action', subtype: 'raise-shield' } },
+            { type: 'ACTION', properties: { type: 'action', subtype: 'raise-a-shield' } },
             { type: 'OPERATOR', value: 'THEN' },
             { type: 'ACTION', properties: { type: 'move', subtype: 'stride', minOccurrences: 0, maxOccurrences: 1 } }
         ]
@@ -1295,7 +1338,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         childActions: [
             { type: 'ACTION', properties: { type: 'attack', subtype: 'strike' } },
             { type: 'OPERATOR', value: 'THEN' },
-            { type: 'ACTION', properties: { type: 'action', subtype: 'interact' } }
+            { type: 'ACTION', properties: { type: 'action', subtype: 'interact:reload' } }
         ]
     },
     {
@@ -1325,13 +1368,6 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         slug: 'snap-out-of-it-pathfinder-agent',
         childActions: [
             { type: 'ACTION', properties: { type: 'skill', subtype: 'medicine' } }
-        ]
-    },
-    {
-        name: 'Sneak',
-        slug: 'sneak',
-        childActions: [
-            { type: 'ACTION', properties: { type: 'skill', subtype: 'stealth' } }
         ]
     },
     {
@@ -1388,7 +1424,13 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         name: 'Subtle Shank',
         slug: 'subtle-shank',
         childActions: [
-            { type: 'ACTION', properties: { type: 'action', subtype: 'interact' } },
+            {
+                type: 'GROUP', value: [
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact:draw (1H)' } },
+                    { type: 'OPERATOR', value: 'XOR' },
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact:draw (2H)' } },
+                ]
+            },
             { type: 'OPERATOR', value: 'THEN' },
             { type: 'ACTION', properties: { type: 'attack', subtype: 'strike' } },
             { type: 'OPERATOR', value: 'THEN' },
@@ -1428,6 +1470,13 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         ]
     },
     {
+        name: 'Tag Team',
+        slug: 'tag-team',
+        childActions: [
+            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', modifiers: ['fixedMAP2'] } }
+        ]
+    },
+    {
         name: 'Temporal Fury',
         slug: 'temporal-fury',
         childActions: [
@@ -1443,6 +1492,26 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         slug: 'that-was-a-close-one-huh',
         childActions: [
             { type: 'ACTION', properties: { type: 'skill', subtype: 'deception' } }
+        ]
+    },
+    {
+        name: 'Touch and Go',
+        slug: 'touch-and-go',
+        childActions: [
+            { type: 'ACTION', properties: { type: 'move', subtype: 'step', minOccurrences: 0, maxOccurrences: 1 } },
+            { type: 'OPERATOR', value: 'AND' },
+            {
+                type: 'GROUP',
+                value: [
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact:change-grip-2h', minOccurrences: 0, maxOccurrences: 1 } },
+                    { type: 'OPERATOR', value: 'XOR' },
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact:change-grip-1h', minOccurrences: 0, maxOccurrences: 1 } },
+                    { type: 'OPERATOR', value: 'XOR' },
+                    { type: 'ACTION', properties: { type: 'action', subtype: 'interact', minOccurrences: 0, maxOccurrences: 1 } }
+                ]
+            },
+            { type: 'OPERATOR', value: 'THEN' },
+            { type: 'ACTION', properties: { type: 'action', subtype: 'interact:reload' } }
         ]
     },
     //TODO: How to associate damage rolls with no attacks?
@@ -1471,7 +1540,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         name: 'Triangle Shot',
         slug: 'triangle-shot',
         childActions: [
-            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 3, maxOccurrences: 3, modifiers: ['fixedMAP', 'deferMAP', 'combineDamage'] } }
+            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike', minOccurrences: 3, maxOccurrences: 3, modifiers: ['fixedMAP2', 'deferMAP', 'combineDamage'] } }
         ]
     },
     {

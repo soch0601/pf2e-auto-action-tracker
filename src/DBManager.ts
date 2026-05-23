@@ -1,7 +1,7 @@
-import { SCOPE } from "./globals";
-import { ActorManager } from "./ActorManager";
-import { SettingsManager } from "./SettingsManager";
-import { isCurrentUserActiveGM } from "./foundryCompat";
+import { SCOPE } from "./globals.ts";
+import { ActorManager } from "./ActorManager.ts";
+import { SettingsManager } from "./SettingsManager.ts";
+import { isCurrentUserActiveGM } from "./foundryCompat.ts";
 import type { ActionLogEntry } from "./ActionLogTypes";
 import type { CombatantPF2e } from "module-helpers";
 

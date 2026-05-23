@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { MovementManager } from "../src/MovementManager.ts";
 import { ActionManager as ActualActionManager } from "../src/ActionManager.ts";
 import { GlobalConfig } from "../src/globals.ts";
-import { ActorHandler } from "../src/ActorHandler.ts";
+import { ActorManager } from "../src/ActorManager.ts";
 import { SocketsManager } from "../src/SocketManager.ts";
 import { ChatManager } from "../src/ChatManager.ts";
 
@@ -94,20 +94,20 @@ ActualActionManager.getLastAction = (combatant) => {
     return list[list.length - 1];
 };
 
-// Mock ActorHandler
-const originalActorHandler = {
-    getActiveSpeed: ActorHandler.getActiveSpeed,
-    getMaxActions: ActorHandler.getMaxActions,
-    getSlots: ActorHandler.getSlots,
-    allocateSlots: ActorHandler.allocateSlots,
-    hasQuickenedSnapshot: ActorHandler.hasQuickenedSnapshot
+// Mock ActorManager
+const originalActorManager = {
+    getActiveSpeed: ActorManager.getActiveSpeed,
+    getMaxActions: ActorManager.getMaxActions,
+    getSlots: ActorManager.getSlots,
+    allocateSlots: ActorManager.allocateSlots,
+    hasQuickenedSnapshot: ActorManager.hasQuickenedSnapshot
 };
 
-ActorHandler.getActiveSpeed = () => 30;
-ActorHandler.getMaxActions = () => 3;
-ActorHandler.getSlots = () => [];
-ActorHandler.allocateSlots = () => ({ slots: [], overspent: [] });
-ActorHandler.hasQuickenedSnapshot = () => false;
+ActorManager.getActiveSpeed = () => 30;
+ActorManager.getMaxActions = () => 3;
+ActorManager.getSlots = () => [];
+ActorManager.allocateSlots = () => ({ slots: [], overspent: [] });
+ActorManager.hasQuickenedSnapshot = () => false;
 
 globalThis.PF2E_AUTO_ACTION_TRACKER = { GlobalConfig };
 
@@ -285,11 +285,11 @@ async function runTests() {
     ActualActionManager.getActions = originalGetActions;
     ActualActionManager.getFlattenedActions = originalGetFlattenedActions;
     ActualActionManager.getLastAction = originalGetLastAction;
-    ActorHandler.getActiveSpeed = originalActorHandler.getActiveSpeed;
-    ActorHandler.getMaxActions = originalActorHandler.getMaxActions;
-    ActorHandler.getSlots = originalActorHandler.getSlots;
-    ActorHandler.allocateSlots = originalActorHandler.allocateSlots;
-    ActorHandler.hasQuickenedSnapshot = originalActorHandler.hasQuickenedSnapshot;
+    ActorManager.getActiveSpeed = originalActorManager.getActiveSpeed;
+    ActorManager.getMaxActions = originalActorManager.getMaxActions;
+    ActorManager.getSlots = originalActorManager.getSlots;
+    ActorManager.allocateSlots = originalActorManager.allocateSlots;
+    ActorManager.hasQuickenedSnapshot = originalActorManager.hasQuickenedSnapshot;
 }
 
 await runTests().catch(e => {

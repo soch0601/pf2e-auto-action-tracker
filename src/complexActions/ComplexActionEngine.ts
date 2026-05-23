@@ -2,7 +2,9 @@ import { SPECIAL_ACTIVITIES } from "./library.ts";
 import type { ActiveActivityState, LeafState, OperatorNode, ActionNode, GroupNode } from "./types.d.ts";
 import { type ActionLogEntry, getEntryCost } from "../ActionLogTypes.ts";
 import { MovementManager } from "../MovementManager.ts";
-import type { CombatantPF2e } from "module-helpers";
+import type { CombatantPF2e, ActorPF2e } from "module-helpers";
+import { ComplexActionFormatter } from "./ComplexActionFormatter.ts";
+import { ActorManager } from "../ActorManager.ts"
 
 export class ComplexActionEngine {
 
@@ -16,7 +18,7 @@ export class ComplexActionEngine {
             nodes.forEach((node, index) => {
                 const currentPath = [...path, index];
                 if (node.type === 'ACTION') {
-                    const id = this._generateId(...currentPath);
+                    const id = this.generateId(...currentPath);
                     leaves[id] = {
                         id,
                         type: node.properties.type,
@@ -126,9 +128,9 @@ export class ComplexActionEngine {
         const actionIndex = leaf.childActions.findIndex(l => l.msgId === msgId);
         if (actionIndex === -1) return newState;
 
-        const canInterrupt = leaf.type === 'move';
+        const isMoveEdit = leaf.type === 'move' || (leaf.type === 'skill' && leaf.subtype === 'sneak');
         // Edit an interruptable movement
-        if (canInterrupt && combatant) {
+        if (isMoveEdit && combatant) {
             const moveData = this._getUpdatedMoveData(newState, leaf, combatant);
             if (moveData) {
                 leaf.childActions[actionIndex].label = moveData.isOverflow ? `${moveData.label} (EXCEEDED)` : moveData.label;
@@ -302,90 +304,6 @@ export class ComplexActionEngine {
         else return definition.name;
     }
 
-    static toString(state: ActiveActivityState): string {
-        const definition = SPECIAL_ACTIVITIES.find(a => a.slug === state.activitySlug);
-        if (!definition) return "Unknown Activity";
-
-        const parts: string[] = [definition.name];
-
-        // Find the first unsatisfied mandatory leaf to show what we are waiting for
-        const getGoals = (nodes: any[], path: number[] = []): string[] => {
-            let goals: string[] = [];
-            let operator = 'THEN'; // Default behavior
-
-            // Check if this level has an operator
-            const opNode = nodes.find(n => n.type === 'OPERATOR');
-            if (opNode) operator = opNode.value;
-
-            for (let i = 0; i < nodes.length; i++) {
-                const node = nodes[i];
-                if (node.type === 'OPERATOR') continue;
-
-                const currentPath = [...path, i];
-                if (node.type === 'ACTION') {
-                    const id = ComplexActionEngine._generateId(...currentPath);
-                    const leaf = state.leaves[id];
-                    if (leaf.isClosed && !leaf.satisfied) continue;
-
-                    const isLeafDone = ComplexActionEngine._leafIsSatisfied(leaf);
-                    if (!isLeafDone) {
-                        // If the base requirement isn't met, show the label
-                        if (!leaf.satisfied) {
-                            const label = (leaf.subtype ? `${leaf.subtype}` : leaf.type);
-                            goals.push(label);
-                        } else {
-                            // If base is met but children aren't, show what the children are waiting for
-                            for (const childAction of leaf.childActions) {
-                                if (childAction.ComplexActionState && !childAction.ComplexActionState.completedBy) {
-                                    goals.push(ComplexActionEngine.toString(childAction.ComplexActionState));
-                                }
-                            }
-                        }
-
-                        // IF it's a THEN (Sequence), we stop at the first roadblock
-                        if (operator === 'THEN') return goals;
-                    }
-                } else if (node.type === 'GROUP') {
-                    // Dive in to find what we are still missing (or any nested sub-activities)
-                    const subGoals = getGoals(node.value, currentPath);
-                    if (subGoals.length > 0) {
-                        goals.push(...subGoals);
-                        if (operator === 'THEN') return goals;
-                    }
-
-                    // If the group as a whole is already satisfied, we don't need to look at anything else in it
-                    const isGroupDone = ComplexActionEngine._nodeIsSatisfied(node, state, currentPath);
-                    if (isGroupDone) {
-                        continue;
-                    }
-                }
-            }
-            return goals;
-        };
-
-        if (state.completedBy) return `${definition.name} - Complete`;
-
-        const allGoals = getGoals(definition.childActions);
-
-        if (allGoals.length > 0) {
-            const limit = 3;
-            const displayedGoals = allGoals.slice(0, limit);
-            const overflowCount = allGoals.length - limit;
-
-            let goalText = displayedGoals.join(" or ");
-            if (overflowCount > 0) {
-                goalText += ` or ${overflowCount} other option${overflowCount > 1 ? 's' : ''}`;
-            }
-
-            return `${definition.name} - Waiting for: ${goalText}`;
-        }
-
-        if (this.canComplete(state)) {
-            return `${definition.name} - Ready to Finish (or continue)`;
-        }
-
-        return definition.name;
-    }
 
     private static _removeSingleItem(state: ActiveActivityState, msgId: string): ActiveActivityState {
         const newState: ActiveActivityState = JSON.parse(JSON.stringify(state));
@@ -419,7 +337,7 @@ export class ComplexActionEngine {
       * Deterministically generates an ID based on tree position.
       * e.g., "0-0-1" for first child of first group's second child.
       */
-    private static _generateId(...indices: number[]): string {
+    public static generateId(...indices: number[]): string {
         return indices.join('-');
     }
 
@@ -471,7 +389,7 @@ export class ComplexActionEngine {
         if (node.type === 'OPERATOR') return { claimed: false, delegated: false };
 
         if (node.type === 'ACTION') {
-            const id = this._generateId(...path);
+            const id = this.generateId(...path);
             const leaf = state.leaves[id];
 
             if (leaf) {
@@ -483,7 +401,7 @@ export class ComplexActionEngine {
                         if (result.claimed) {
                             console.log("ComplexActionEngine: Delegated action claim to child ComplexActionState", childAction.ComplexActionState.activitySlug);
                             leaf.childActions[j].ComplexActionState = result.newState;
-                            leaf.childActions[j].label = ComplexActionEngine.toString(result.newState);
+                            leaf.childActions[j].label = ComplexActionFormatter.toString(result.newState);
 
                             // SYNC to orderedActivityChildActions so the state is strictly consistent!
                             const orderedIndex = state.orderedActivityChildActions.findIndex(a => a.msgId === childAction.msgId);
@@ -504,17 +422,31 @@ export class ComplexActionEngine {
             const canInterrupt = node.properties?.modifiers?.includes('allowInterruption') ?? false;
             const movementMode = leaf.subtype || 'stride';
 
-            // --- STANDARD CLAIM LOGIC ---
-            if (incoming.slug === 'step' || incoming.slug === 'leap' || incoming.slug === 'burrow' || incoming.slug === 'swim' || incoming.slug === 'fly' || incoming.slug === 'climb') {
-                incoming.slug = 'stride';
+            if (incoming.action.label === 'Step') {
+                incoming.slug = 'step';
+            }
+            // If incoming is a move action but this leaf is looking for sneak, convert it
+            if (incoming.type === 'move' && leaf.type === 'skill' && leaf.subtype === 'sneak') {
+                incoming.type = 'skill';
+                incoming.slug = 'sneak';
+                if (incoming.action) {
+                    incoming.action.category = 'skill';
+                    incoming.action.slug = 'sneak';
+                    incoming.action.label = 'Sneak';
+                }
             }
 
+            // --- STANDARD CLAIM LOGIC ---
+            if (incoming.slug === 'step' || incoming.slug === 'leap' || incoming.slug === 'burrow' || incoming.slug === 'swim' || incoming.slug === 'fly' || incoming.slug === 'climb') {
+                if (leaf && leaf.subtype !== incoming.slug) {
+                    incoming.slug = 'stride';
+                }
+            }
 
-
-            // We check this FIRST to allow merging segments into a single action expenditure
-            if (leaf && !leaf.isClosed && incoming.type === 'move' && canInterrupt) {
-                const movementMode = leaf.subtype || 'stride';
-                if (incoming.slug !== movementMode) return { claimed: false, delegated: false };
+            // We check this FIRST to allow measuring and merging segments
+            if (leaf && !leaf.isClosed && (incoming.type === 'move' || (incoming.type === 'skill' && incoming.slug === 'sneak'))) {
+                const movementMode = incoming.slug === 'sneak' ? 'stride' : (leaf.subtype || 'stride');
+                if (incoming.slug !== 'sneak' && incoming.slug !== movementMode) return { claimed: false, delegated: false };
 
                 const actor = (combatant as unknown as Combatant).actor;
                 const c = combatant as any;
@@ -531,20 +463,42 @@ export class ComplexActionEngine {
 
                 if (activityPath.length > 0) {
                     // Ask MovementManager to measure this specific slice
-                    const { cost, label } = MovementManager.measurePath(actor, tokenDoc?.object, activityPath, movementMode);
+                    let { distance, cost, label } = MovementManager.measurePath(actor, tokenDoc?.object, activityPath, movementMode);
+
+                    if (incoming.slug === 'sneak') {
+                        const activeSpeed = ActorManager.getActiveSpeed((actor as any as ActorPF2e), "stride") || 30;
+                        const sneakSpeed = activeSpeed / 2;
+                        cost = Math.ceil(distance / sneakSpeed);
+                        label = `Sneak: ${distance}ft`;
+                    }
 
                     const maxAllowed = leaf.maxCost ?? 1;
 
                     if (cost <= maxAllowed) {
                         // STANDARD CLAIM: Within budget
-                        if (cost >= (leaf.minCost || 1)) {
-                            leaf.satisfied = true;
-                        }
+                        const minOcc = leaf.minOccurrences ?? 1;
+                        const maxOcc = leaf.maxOccurrences ?? 1;
+
                         incoming.cost = 0;
                         incoming.action.label = label;
                         (incoming.action as any).coords = activityPath;
 
-                        leaf.childActions.push(incoming.action);
+                        if (canInterrupt && leaf.childActions.length > 0) {
+                            const existingAction = leaf.childActions[leaf.childActions.length - 1];
+                            leaf.childActions[leaf.childActions.length - 1] = incoming.action;
+                            const orderedIndex = state.orderedActivityChildActions.findIndex(a => a.msgId === existingAction.msgId);
+                            if (orderedIndex !== -1) {
+                                state.orderedActivityChildActions[orderedIndex] = incoming.action;
+                            }
+                        } else {
+                            leaf.childActions.push(incoming.action);
+                        }
+
+                        leaf.satisfied = leaf.childActions.length >= minOcc;
+                        if ((leaf.childActions.length === maxOcc && !canInterrupt) || (leaf.childActions.length > maxOcc)) {
+                            leaf.isClosed = true;
+                        }
+
                         return { claimed: true, delegated: false };
                     } else {
                         // OVERFLOW CLAIM: We "swallow" the action but penalize the state
@@ -554,7 +508,7 @@ export class ComplexActionEngine {
 
                         // Return true because the ENGINE has successfully claimed this segment 
                         // and updated the state to reflect the error.
-                        return { claimed: false, delegated: false }; // Actually previous logic said return false, which caused it to NOT be claimed, wait! The original code says `return false;`
+                        return { claimed: false, delegated: false };
                     }
                 }
             }
@@ -599,14 +553,14 @@ export class ComplexActionEngine {
     private static _isRangeSatisfied(nodes: (ActionNode | OperatorNode | GroupNode)[], state: ActiveActivityState, parentPath: number[] = []): boolean {
         return nodes.every((n, index) => {
             if (n.type === 'OPERATOR') return true;
-            return this._nodeIsSatisfied(n, state, [...parentPath, index]);
+            return this.nodeIsSatisfied(n, state, [...parentPath, index]);
         });
     }
 
-    private static _nodeIsSatisfied(node: ActionNode | GroupNode, state: ActiveActivityState, path: number[]): boolean {
+    public static nodeIsSatisfied(node: ActionNode | GroupNode, state: ActiveActivityState, path: number[]): boolean {
         if (node.type === 'ACTION') {
-            const id = this._generateId(...path);
-            return this._leafIsSatisfied(state.leaves[id]);
+            const id = this.generateId(...path);
+            return this.leafIsSatisfied(state.leaves[id]);
         }
 
         if (node.type === 'GROUP') {
@@ -616,12 +570,23 @@ export class ComplexActionEngine {
                 .filter((v): v is { node: ActionNode | GroupNode, index: number } => v.node.type !== 'OPERATOR');
 
             const results = childrenWithIndices.map(child =>
-                this._nodeIsSatisfied(child.node, state, [...path, child.index])
+                this.nodeIsSatisfied(child.node, state, [...path, child.index])
             );
 
             switch (operatorNode?.value) {
                 case 'OR': return results.some(r => r);
-                case 'XOR': return results.filter(r => r).length === 1;
+                case 'XOR': {
+                    const childrenWithActions = childrenWithIndices.filter(child =>
+                        this._nodeHasActions(child.node, state, [...path, child.index])
+                    );
+                    if (childrenWithActions.length === 0) {
+                        return results.some(r => r);
+                    }
+                    if (childrenWithActions.length === 1) {
+                        return this.nodeIsSatisfied(childrenWithActions[0].node, state, [...path, childrenWithActions[0].index]);
+                    }
+                    return false;
+                }
                 case 'AND':
                 default: return results.every(r => r);
             }
@@ -632,13 +597,13 @@ export class ComplexActionEngine {
     private static _isRangeClosed(nodes: (ActionNode | OperatorNode | GroupNode)[], state: ActiveActivityState, parentPath: number[] = []): boolean {
         return nodes.every((n, index) => {
             if (n.type === 'OPERATOR') return true;
-            return this._nodeIsClosed(n, state, [...parentPath, index]);
+            return this.nodeIsClosed(n, state, [...parentPath, index]);
         });
     }
 
-    private static _nodeIsClosed(node: ActionNode | GroupNode, state: ActiveActivityState, path: number[]): boolean {
+    public static nodeIsClosed(node: ActionNode | GroupNode, state: ActiveActivityState, path: number[]): boolean {
         if (node.type === 'ACTION') {
-            const id = this._generateId(...path);
+            const id = this.generateId(...path);
             const leaf = state.leaves[id];
             // It's closed if the leaf says it is, OR if it's satisfied and there is no manual finish
             return leaf?.isClosed || false;
@@ -651,7 +616,7 @@ export class ComplexActionEngine {
                 .filter((v): v is { node: ActionNode | GroupNode, index: number } => v.node.type !== 'OPERATOR');
 
             const results = childrenWithIndices.map(child =>
-                this._nodeIsClosed(child.node, state, [...path, child.index])
+                this.nodeIsClosed(child.node, state, [...path, child.index])
             );
 
             console.log('in _nodeIsClosed - results: ', results)
@@ -696,7 +661,7 @@ export class ComplexActionEngine {
 
     private static _recursiveClose(node: ActionNode | GroupNode, state: ActiveActivityState, path: number[], force: boolean = false) {
         if (node.type === 'ACTION') {
-            const id = this._generateId(...path);
+            const id = this.generateId(...path);
             const leaf = state.leaves[id];
             const canInterrupt = node.properties?.modifiers?.includes('allowInterruption') ?? false;
             // Force close (e.g. for XOR siblings) or standard close for satisfied actions
@@ -758,7 +723,7 @@ export class ComplexActionEngine {
 
     private static _nodeHasActions(node: ActionNode | GroupNode, state: ActiveActivityState, path: number[]): boolean {
         if (node.type === 'ACTION') {
-            const id = this._generateId(...path);
+            const id = this.generateId(...path);
             const leaf = state.leaves[id];
             return leaf ? leaf.childActions.length > 0 : false;
         }
@@ -768,7 +733,7 @@ export class ComplexActionEngine {
         return false;
     }
 
-    private static _leafIsSatisfied(leaf: LeafState | undefined): boolean {
+    public static leafIsSatisfied(leaf: LeafState | undefined): boolean {
         if (!leaf) return false;
         if (!leaf.satisfied) return false;
 
@@ -811,7 +776,15 @@ export class ComplexActionEngine {
         if (activityPath.length === 0) return null;
 
         const movementMode = leaf.subtype || 'stride';
-        const { cost, label } = MovementManager.measurePath(actor, tokenDoc?.object, activityPath, movementMode);
+        let { distance, cost, label } = MovementManager.measurePath(actor, tokenDoc?.object, activityPath, movementMode === 'sneak' ? 'stride' : movementMode);
+
+        if (movementMode === 'sneak') {
+            const activeSpeed = ActorManager.getActiveSpeed(actor, "stride") || 30;
+            const sneakSpeed = activeSpeed / 2;
+            cost = Math.ceil(distance / sneakSpeed);
+            label = `Sneak: ${distance}ft`;
+        }
+
         const maxAllowed = leaf.maxCost ?? 1;
 
         return {

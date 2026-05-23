@@ -233,14 +233,54 @@ assert.deepEqual(
     getCurrentMapStateFromLog([{ isMapRelevant: true }], false),
     { attackCount: 0, penalty: 0, profile: "standard" }
 );
+assert.deepEqual(
+    getCurrentMapStateFromLog([
+        { isMapRelevant: true, mapProfile: "standard" },
+        {
+            ComplexActionState: {
+                completedBy: undefined,
+                leaves: {
+                    "leaf-1": {
+                        type: "attack",
+                        isClosed: false,
+                        modifiers: ["fixedMAP2"]
+                    }
+                }
+            }
+        }
+    ]),
+    { attackCount: 1, penalty: 7, profile: "standard" }
+);
+assert.deepEqual(
+    getCurrentMapStateFromLog([
+        { isMapRelevant: true, mapProfile: "agile" },
+        {
+            ComplexActionState: {
+                completedBy: undefined,
+                leaves: {
+                    "leaf-1": {
+                        type: "attack",
+                        isClosed: false,
+                        modifiers: ["fixedMAP2"]
+                    }
+                }
+            }
+        }
+    ]),
+    { attackCount: 1, penalty: 6, profile: "agile" }
+);
 
 assert.equal(formatMapLabel({ attackCount: 0, penalty: 0 }, false), "MAP: 0");
 assert.equal(formatMapLabel({ attackCount: 1, penalty: 5 }, false), "MAP: -4 | -5");
 assert.equal(formatMapLabel({ attackCount: 1, penalty: 4 }, false), "MAP: -4 | -5");
 assert.equal(formatMapLabel({ attackCount: 2, penalty: 8 }, false), "MAP: -8 | -10");
+assert.equal(formatMapLabel({ attackCount: 2, penalty: 6 }, false), "MAP: -6 | -7");
+assert.equal(formatMapLabel({ attackCount: 2, penalty: 7 }, false), "MAP: -6 | -7");
 assert.equal(formatMapLabel({ attackCount: 0, penalty: 0 }, true), "");
 assert.equal(formatMapLabel({ attackCount: 1, penalty: 4 }, true), "M1");
 assert.equal(formatMapLabel({ attackCount: 2, penalty: 8 }, true), "M2");
+assert.equal(formatMapLabel({ attackCount: 2, penalty: 6 }, true), "M1-2");
+assert.equal(formatMapLabel({ attackCount: 2, penalty: 7 }, true), "M1-2");
 assert.deepEqual(getMapDisplayState({ attackCount: 0, penalty: 0 }), {
     visible: false,
     core: { text: "MAP: 0", inline: true, tooltip: "MAP 0: no multiple attack penalty" },
@@ -255,6 +295,16 @@ assert.deepEqual(getMapDisplayState({ attackCount: 2, penalty: 10 }), {
     visible: true,
     core: { text: "MAP: -8 | -10", inline: true, tooltip: "MAP 2: -8 | -10" },
     compact: { text: "M2", inline: true, tooltip: "MAP 2: -8 | -10" },
+});
+assert.deepEqual(getMapDisplayState({ attackCount: 2, penalty: 6 }), {
+    visible: true,
+    core: { text: "MAP: -6 | -7", inline: true, tooltip: "MAP 1 w/-2: -6 | -7" },
+    compact: { text: "M1-2", inline: true, tooltip: "MAP 1 w/-2: -6 | -7" },
+});
+assert.deepEqual(getMapDisplayState({ attackCount: 2, penalty: 7 }), {
+    visible: true,
+    core: { text: "MAP: -6 | -7", inline: true, tooltip: "MAP 1 w/-2: -6 | -7" },
+    compact: { text: "M1-2", inline: true, tooltip: "MAP 1 w/-2: -6 | -7" },
 });
 
 const grappleMessage = {

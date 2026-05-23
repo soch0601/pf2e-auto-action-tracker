@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { ActorHandler } from "../src/ActorHandler.ts";
+import { ActorManager as ActorHandler } from "../src/ActorManager.ts";
 
 class MockActor {
     constructor(slugs = [], conditions = []) {

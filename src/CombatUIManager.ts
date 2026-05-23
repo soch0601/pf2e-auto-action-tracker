@@ -258,7 +258,8 @@ export class CombatUIManager {
                 else if (isGold) suffix = ` (Bonus Action)`;
 
                 let fbInfo = getForceBarrageInfo(entry, flattenedLog);
-                span.dataset.tooltip = `Used: ${displayLabel}${suffix}${isOver ? ' (Overspent)' : ''}${fbInfo ? ` - ${fbInfo}` : ''}`;
+                const fullTooltip = `Used: ${displayLabel}${suffix}${isOver ? ' (Overspent)' : ''}${fbInfo ? ` - ${fbInfo}` : ''}`;
+                span.dataset.tooltip = fullTooltip.replace(/\n/g, "<br>");
 
                 if (entry.type === "system" || entry.msgId === "System") {
                     span.style.cursor = "default";
@@ -393,7 +394,7 @@ export class CombatUIManager {
                 tooltip = `Available Reaction (${slot.definition.name})`;
             }
 
-            span.dataset.tooltip = tooltip;
+            span.dataset.tooltip = tooltip.replace(/\n/g, "<br>");
             span.textContent = "R";
 
             if (entry) {

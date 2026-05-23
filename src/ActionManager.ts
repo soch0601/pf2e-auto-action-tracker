@@ -4,6 +4,7 @@ import { SettingsManager } from "./SettingsManager.ts";
 import { ActorManager } from "./ActorManager.ts";
 import type { ActorPF2e, CombatantPF2e } from "module-helpers";
 import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
+import { ComplexActionFormatter } from "./complexActions/ComplexActionFormatter.ts";
 import { getCurrentMapStateFromLog } from "./mapTracker.ts";
 import { isCurrentUserActiveGM } from "./foundryCompat.ts";
 import { type ActionLogEntry, getEntryCost } from "./ActionLogTypes.ts";
@@ -12,8 +13,7 @@ import { ItemManager } from "./ItemManager.ts";
 
 export class ActionManager {
     private static writeQueues = new Map<string, Promise<any>>();
-    private static _lastUndoId: string | null = null;
-    private static _lastUndoTime: number = 0;
+
     static getEntryCost(entry: ActionLogEntry, log?: readonly ActionLogEntry[]): number {
         return getEntryCost(entry, log);
     }
@@ -195,7 +195,7 @@ export class ActionManager {
         const newSequence = ComplexActionEngine.maybeStart(incomingSlug, action.msgId, (combatant as unknown as Combatant).token);
         if (newSequence) {
             action.ComplexActionState = newSequence;
-            action.label = ComplexActionEngine.toString(newSequence);
+            action.label = ComplexActionFormatter.toString(newSequence);
         }
 
         // 1. Check for OPEN sequences
@@ -215,7 +215,7 @@ export class ActionManager {
             if (result.claimed) {
                 openEntry.ComplexActionState = result.newState;
                 // Use toString() for a clean, dynamic label
-                openEntry.label = ComplexActionEngine.toString(result.newState);
+                openEntry.label = ComplexActionFormatter.toString(result.newState);
 
                 const { MovementManager } = await import("./MovementManager.ts");
                 // If this action completed the sequence and it wasn't a move, reset movement history
@@ -234,7 +234,7 @@ export class ActionManager {
                 return;
             } else if (ComplexActionEngine.canComplete(openEntry.ComplexActionState)) {
                 openEntry.ComplexActionState = ComplexActionEngine.complete(openEntry.ComplexActionState, ComplexActionEngine.getAllChildActions(openEntry.ComplexActionState).reverse()[0].msgId);
-                openEntry.label = ComplexActionEngine.toString(openEntry.ComplexActionState);
+                openEntry.label = ComplexActionFormatter.toString(openEntry.ComplexActionState);
                 // Sequence completed/ejected, reset history
                 const { MovementManager } = await import("./MovementManager.ts");
                 if (tokenId) MovementManager.resetCapturedHistory(tokenId);
@@ -301,7 +301,7 @@ export class ActionManager {
 
                 // Mark as broken by this specific message ID
                 parentEntry.ComplexActionState = ComplexActionEngine.complete(parentEntry.ComplexActionState, msgId);
-                parentEntry.label = ComplexActionEngine.toString(parentEntry.ComplexActionState);
+                parentEntry.label = ComplexActionFormatter.toString(parentEntry.ComplexActionState);
 
                 // Promote the edited action to the top-level log
                 currentLog.push({ ...subAction, ...updates });
@@ -316,7 +316,7 @@ export class ActionManager {
             } else {
                 // Valid edit: just update the internal state
                 parentEntry.ComplexActionState = newState;
-                parentEntry.label = ComplexActionEngine.toString(newState);
+                parentEntry.label = ComplexActionFormatter.toString(newState);
 
                 if (newState.completedBy && newState.completedBy === msgId) {
                     const overrideCost = ComplexActionEngine.getOverrideCost(newState);
@@ -354,7 +354,7 @@ export class ActionManager {
                         delete openSequence.ComplexActionState.completedBy;
                     }
 
-                    openSequence.label = ComplexActionEngine.toString(openSequence.ComplexActionState);
+                    openSequence.label = ComplexActionFormatter.toString(openSequence.ComplexActionState);
 
                     // Remove the orphaned top-level action
                     currentLog.splice(topLevelIndex, 1);
@@ -407,7 +407,7 @@ export class ActionManager {
 
             if (parent && parent.ComplexActionState) {
                 parent.ComplexActionState = ComplexActionEngine.remove(parent.ComplexActionState, msgId);
-                parent.label = ComplexActionEngine.toString(parent.ComplexActionState);
+                parent.label = ComplexActionFormatter.toString(parent.ComplexActionState);
                 parent.cost = ComplexActionEngine.getOverrideCost(parent.ComplexActionState) ?? parent.cost;
 
                 // If the parent was completed by this message, it's already handled by the UNLOCK logic below
@@ -419,7 +419,7 @@ export class ActionManager {
             currentLog.forEach(e => {
                 if (e.ComplexActionState?.completedBy === msgId) {
                     delete e.ComplexActionState.completedBy;
-                    e.label = ComplexActionEngine.toString(e.ComplexActionState);
+                    e.label = ComplexActionFormatter.toString(e.ComplexActionState);
                     logChanged = true;
                 }
             });
@@ -642,7 +642,7 @@ export class ActionManager {
         const newState = ComplexActionEngine.complete(action.ComplexActionState, 'MANUAL COMPLETE');
 
         const updates: Partial<ActionLogEntry> = {
-            label: ComplexActionEngine.toString(action.ComplexActionState),
+            label: ComplexActionFormatter.toString(action.ComplexActionState),
             cost: ComplexActionEngine.getOverrideCost(action.ComplexActionState) ?? topLevelAction.cost,
             ComplexActionState: newState
         }
@@ -670,7 +670,7 @@ export class ActionManager {
 
     static getCurrentMAP(
         combatant: CombatantPF2e
-    ): { attackCount: number, penalty: 0 | 4 | 5 | 8 | 10, profile: "standard" | "agile" } {
+    ): { attackCount: number, penalty: 0 | 2 | 4 | 5 | 6 | 7 | 8 | 10, profile: "standard" | "agile" } {
         const isActiveTurn = (game as any).combat?.combatant?.id === (combatant as any).id;
         return getCurrentMapStateFromLog(DBManager.getLog(combatant), isActiveTurn);
     }

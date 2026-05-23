@@ -391,6 +391,8 @@ export class ChatManager {
                 const isPublic = message.whisper.length === 0 || message.whisper.includes(game.user.id);
                 const finalLabel = isPublic ? details.label : "Secret Action";
 
+                logInfo(`label: ${finalLabel} and category: ${Detector.type} and slug: ${details.slug}`);
+
                 return {
                     cost: details.cost ?? 0,
                     slug: details.slug ?? "",

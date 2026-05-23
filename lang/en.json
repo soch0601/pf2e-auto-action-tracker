@@ -39,5 +39,13 @@
   "PF2E_ACTION_TRACKER.Settings.EnhancedUndo.Name": "Enhanced Undo",
   "PF2E_ACTION_TRACKER.Settings.EnhancedUndo.Hint": "When undoing an action in the tracker, automatically revert damage, restore spell slots, and remove applied effects.",
   "PF2E_ACTION_TRACKER.Settings.EnhancedUndo.GMHint": "When you or a player undo an action, automatically revert damage, restore spell slots, and remove applied effects.",
-  "PF2E_ACTION_TRACKER.Settings.EnhancedUndo.PlayerHint": "When you undo an action, automatically revert damage, restore spell slots, and remove applied effects."
+  "PF2E_ACTION_TRACKER.Settings.EnhancedUndo.PlayerHint": "When you undo an action, automatically revert damage, restore spell slots, and remove applied effects.",
+  "PF2E_ACTION_TRACKER.Actions.strike": "Strike",
+  "PF2E_ACTION_TRACKER.Actions.step": "Step",
+  "PF2E_ACTION_TRACKER.Actions.stride": "Stride",
+  "PF2E_ACTION_TRACKER.Actions.interact": "Interact",
+  "PF2E_ACTION_TRACKER.Actions.acrobatics": "Acrobatics",
+  "PF2E_ACTION_TRACKER.Actions.grapple": "Grapple",
+  "PF2E_ACTION_TRACKER.Actions.shove": "Shove",
+  "PF2E_ACTION_TRACKER.Actions.trip": "Trip"
 }

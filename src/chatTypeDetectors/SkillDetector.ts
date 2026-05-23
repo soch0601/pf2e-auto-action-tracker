@@ -23,7 +23,7 @@ export class SkillDetector {
 
         // 3. Determine the Slug
         // We prioritize the action (hide, shove) but fallback to the skill (stealth, athletics)
-        const slug = context?.action || skillSlug || context?.type || "skill-check";
+        const slug = (context?.action || skillSlug || context?.type || "skill-check").toLowerCase();
 
         // 4. Clean the Label
         let label = context?.title || "Skill Check";

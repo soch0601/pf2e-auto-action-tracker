@@ -24,7 +24,7 @@ export class AttackDetector {
         const cost = getCostFromMsgFlavor(message.flavor);
         const mapProfile: IActionDetails["mapProfile"] = message.item?.traits?.has?.("agile") ? "agile" : "standard";
 
-        const slug = flags.context?.action || getSlugFromMsgFlavor(htmlPool) || "attack";
+        const slug = (flags.context?.action || getSlugFromMsgFlavor(htmlPool) || "attack").toLowerCase();
         const isStrike = slug.toLowerCase() === "strike";
 
         let finalCost = isReaction ? 0 : (cost !== undefined ? cost : 1);

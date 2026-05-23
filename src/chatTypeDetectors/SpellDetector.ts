@@ -56,7 +56,7 @@ export class SpellDetector {
         const isReaction = getIsReaction(message.item, message.flags?.pf2e, htmlPool);
 
         const label = item?.name || getLabelFromMsgFlavor(htmlPool) || "Spell Cast";
-        const slug = item?.slug || getSlugFromMsgFlavor(htmlPool) || "spell-cast";
+        const slug = (item?.slug || getSlugFromMsgFlavor(htmlPool) || "spell-cast").toLowerCase();
 
         // PF2e system stores spell rank in various places depending on the message type
         const rank = flags.origin?.castRank

@@ -45,7 +45,7 @@ export class ConsumableDetector {
 
         // Use the label from the item name, or fall back to "Consumable"
         const label = message.item?.name || getLabelFromMsgFlavor(htmlPool) || "Consumable";
-        const slug = message.item?.slug || getSlugFromMsgFlavor(htmlPool) || "use-consumable";
+        const slug = (message.item?.slug || getSlugFromMsgFlavor(htmlPool) || "use-consumable").toLowerCase();
 
         // Determine if this specific use was a reaction
         const isReaction = false;
