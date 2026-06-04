@@ -526,9 +526,7 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         name: 'Feint',
         slug: 'feint',
         childActions: [
-            { type: 'ACTION', properties: { type: 'skill', subtype: 'stealth' } },
-            { type: 'OPERATOR', value: 'XOR' },
-            { type: 'ACTION', properties: { type: 'attack', subtype: 'deception' } }
+            { type: 'ACTION', properties: { type: 'skill', subtype: 'deception' } }
         ]
     },
     {
