@@ -304,11 +304,15 @@ export class ChatManager {
                     itemName: itemName
                 });
 
-                const recipients = ChatMessage.getWhisperRecipients(actor.name);
+                const gmUserIds = game.users.filter((u: any) => u.isGM).map((u: any) => u.id);
+                const ownerUserIds = Object.entries(actor.ownership || {})
+                    .filter(([id, level]) => level === 3 && id !== "default")
+                    .map(([id]) => id);
+                const whisperUserIds = Array.from(new Set([...gmUserIds, ...ownerUserIds]));
 
                 await ChatMessage.create({
                     content: content,
-                    whisper: recipients.map((u: any) => u.id),
+                    whisper: whisperUserIds,
                     speaker: ChatMessage.getSpeaker({ actor: actor })
                 });
             }

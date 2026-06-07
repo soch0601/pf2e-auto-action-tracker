@@ -200,6 +200,12 @@ export class ChatCardRenderer {
         const combatant = findCombatantById(game.combat, combatantId);
         const token = (combatant as any)?.token;
 
+        const gmUserIds = game.users.filter((u: any) => u.isGM).map((u: any) => u.id);
+        const ownerUserIds = Object.entries(actor.ownership || {})
+            .filter(([id, level]) => level === 3 && id !== "default")
+            .map(([id]) => id);
+        const whisperUserIds = Array.from(new Set([...gmUserIds, ...ownerUserIds]));
+
         await ChatMessage.create({
             speaker: {
                 actor: actor.id,
@@ -207,6 +213,7 @@ export class ChatCardRenderer {
                 scene: token?.parent?.id,
                 alias: actor.name
             },
+            whisper: whisperUserIds,
             flavor: `<h4 class="action"><strong>Sustain</strong> <span class="action-glyph">1</span></h4>`,
             content: `<div class="pf2e">Sustaining <strong>@UUID[${item?.uuid}]{${displayName}}</strong></div>`,
             flags: {
