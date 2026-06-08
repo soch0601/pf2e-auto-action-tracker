@@ -1,8 +1,6 @@
 import { SCOPE, recentIntent } from "./globals.ts";
 import { getActorAndTokenFromSheet, findCombatantByMessage, findCombatantById, findCombatantByTokenOrActor } from "./foundryCompat.ts";
 import { ChatPendingState } from "./ChatPendingState.ts";
-import { logInfo } from "./logger.ts";
-
 
 export class ChatCardRenderer {
     public static lastClickedMessageId: string | null = null;
