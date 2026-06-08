@@ -91,6 +91,22 @@ export class ChatManager {
             if (isSpellAttack) {
                 const { ActionManager } = await import("./ActionManager.ts");
                 const originUuid = pf2eFlags.origin?.uuid;
+
+                const queue = (c.getFlag(SCOPE, 'pendingAttackQueue') as string[]) || [];
+                if (queue.length > 0) {
+                    const originatingMsgId = queue.pop();
+                    await c.setFlag(SCOPE, 'pendingAttackQueue', queue);
+
+                    if (originatingMsgId) {
+                        const entry = ActionManager.getActionById(combatant, originatingMsgId);
+                        if (entry) {
+                            const linkedMessages = [...(entry.linkedMessages || []), { type: 'attack', msgId: message.id } as const];
+                            await ActionManager.editAction(combatant, entry.msgId, { linkedMessages });
+                            return;
+                        }
+                    }
+                }
+
                 await ActionManager.linkSpellAttackToAction(combatant, message.item?.uuid, message.item?.id, originUuid, message.item?.name, message.id);
                 return;
             }
@@ -189,14 +205,23 @@ export class ChatManager {
 
     public static async linkDamageRollToAction(combatant: CombatantPF2e, attackMsgId: string, damageMsgId: string) {
         const { ActionManager } = await import("./ActionManager.ts");
-        const entry = ActionManager.getActionById(combatant, attackMsgId);
+        let entry = ActionManager.getActionById(combatant, attackMsgId);
+
+        if (!entry) {
+            entry = ActionManager.getFlattenedActions(combatant).find(e =>
+                e.linkedMessages.some(m => m.msgId === attackMsgId)
+            );
+        }
 
         if (entry) {
             const linkedMessages = [...entry.linkedMessages, { type: 'damage', msgId: damageMsgId } as const];
-            await ActionManager.editAction(combatant, attackMsgId, { linkedMessages });
+            await ActionManager.editAction(combatant, entry.msgId, { linkedMessages });
 
             const updatedParent = ActionManager.getFlattenedActions(combatant).find(e =>
-                e.ComplexActionState && ComplexActionEngine.getAllChildMessageIds(e.ComplexActionState).includes(attackMsgId)
+                e.ComplexActionState && (
+                    ComplexActionEngine.getAllChildMessageIds(e.ComplexActionState).includes(attackMsgId) ||
+                    ComplexActionEngine.getAllChildMessageIds(e.ComplexActionState).includes(entry.msgId)
+                )
             );
 
             if (updatedParent && updatedParent.ComplexActionState) {

@@ -17,6 +17,8 @@ export class SocketsManager {
 
         // Register Sustain (Player -> GM)
         this.socket.register("processSustain", this._handleSustainRequest.bind(this));
+        // Register Reset Sustain Choice (Player -> GM)
+        this.socket.register("resetSustainChoice", this._handleResetSustainChoiceRequest.bind(this));
         // Register Whisper (GM -> Everyone)
         this.socket.register("attemptWhisper", this.handleSocketWhisper.bind(this));
         // Register Movement (Player -> GM)
@@ -45,7 +47,8 @@ export class SocketsManager {
             await (msg as any).setFlag(SCOPE, "sustainChoice", {
                 choice: data.choice,
                 itemName: data.itemName,
-                combatantId: data.combatantId
+                combatantId: data.combatantId,
+                itemId: data.itemId
             });
         }
 
@@ -53,7 +56,7 @@ export class SocketsManager {
         if (actor) {
             const { ChatCardRenderer } = await import("./ChatCardRenderer.ts");
             if (data.choice === "yes") {
-                await ChatCardRenderer.processSustainYes(actor, data.itemId, data.itemName, data.combatantId);
+                await ChatCardRenderer.processSustainYes(actor, data.itemId, data.itemName, data.combatantId, data.messageId);
             } else {
                 const combatant = game.combat?.combatants.get(data.combatantId);
                 await ChatCardRenderer.processSustainNo(actor, data.itemId, combatant);
@@ -146,6 +149,30 @@ export class SocketsManager {
     static emitSustainChoice(payload: any) {
         // This automatically finds the active GM and runs the function there
         this.socket.executeAsGM("processSustain", payload);
+    }
+
+    static emitResetSustainChoice(payload: any) {
+        this.socket.executeAsGM("resetSustainChoice", payload);
+    }
+
+    private static async _handleResetSustainChoiceRequest(data: any) {
+        if (!(game as any).user.isGM) return;
+
+        const message = game.messages.get(data.messageId);
+        if (message) {
+            if (data.choice === "yes" && data.combatantId) {
+                const combatant = game.combat?.combatants.get(data.combatantId);
+                if (combatant) {
+                    const { ActionManager } = await import("./ActionManager.ts");
+                    const logs = ActionManager.getFlattenedActions(combatant as any);
+                    const sustainAction = logs.find(log => log.slug === "sustain-a-spell" && log.sustainItem?.id === data.itemId);
+                    if (sustainAction) {
+                        await ActionManager.removeAction(combatant as any, sustainAction.msgId);
+                    }
+                }
+            }
+            await (message as any).unsetFlag(SCOPE, "sustainChoice");
+        }
     }
 
     static async handleSocketWhisper(data: { targetPlayerIds: string[], header: string, message: string, setting: string }) {

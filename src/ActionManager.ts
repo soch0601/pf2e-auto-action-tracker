@@ -619,6 +619,16 @@ export class ActionManager {
             await Promise.allSettled(messageIds.map(id => ChatManager.deleteMessage(id)));
         }
 
+        // Revert choice on reminder message if exists
+        const primaryMessage = (game as any).messages.get(entry.msgId);
+        const reminderMessageId = primaryMessage?.getFlag(SCOPE, "reminderMessageId");
+        if (reminderMessageId) {
+            const reminderMsg = (game as any).messages.get(reminderMessageId);
+            if (reminderMsg) {
+                await reminderMsg.unsetFlag(SCOPE, "sustainChoice");
+            }
+        }
+
         // 7. Delete the primary message
         await ChatManager.deleteMessage(entry.msgId);
     }
