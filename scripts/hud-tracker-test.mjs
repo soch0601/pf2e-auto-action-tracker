@@ -87,6 +87,7 @@ const {
     isMapRelevantAction,
 } = await import("../src/mapTracker.ts");
 const { SpellDetector } = await import("../src/chatTypeDetectors/SpellDetector.ts");
+const { SkillDetector } = await import("../src/chatTypeDetectors/SkillDetector.ts");
 
 const hudPlayerMount = resolveTrackerMount(hudRoot, "c1", false);
 assert.equal(hudPlayerMount?.mode, "pf2e-hud");
@@ -359,6 +360,16 @@ const tripMessageWithSystemTraits = {
 };
 
 assert.deepEqual(getActionMapMetadata(tripMessageWithSystemTraits), {
+    isMapRelevant: true,
+    mapProfile: "standard",
+});
+
+assert.equal(SkillDetector.isType(tripMessageWithSystemTraits), true);
+assert.deepEqual(SkillDetector.getDetails(tripMessageWithSystemTraits), {
+    cost: 1,
+    slug: "athletics",
+    label: "Trip (Athletics Check)",
+    isReaction: false,
     isMapRelevant: true,
     mapProfile: "standard",
 });
