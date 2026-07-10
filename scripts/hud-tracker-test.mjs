@@ -86,6 +86,7 @@ const {
     getMapDisplayState,
     isMapRelevantAction,
 } = await import("../src/mapTracker.ts");
+const { SpellDetector } = await import("../src/chatTypeDetectors/SpellDetector.ts");
 
 const hudPlayerMount = resolveTrackerMount(hudRoot, "c1", false);
 assert.equal(hudPlayerMount?.mode, "pf2e-hud");
@@ -388,6 +389,77 @@ const grappleChatPayload = {
 assert.deepEqual(getSkillActionMapMetadata(grappleChatPayload), {
     isMapRelevant: true,
     mapProfile: "standard",
+});
+
+// Spell MAP relevance tests
+const acidArrowSpellMsg = {
+    flavor: '<span class="action-glyph">2</span>',
+    content: "",
+    item: {
+        type: "spell",
+        name: "Acid Arrow",
+        slug: "acid-arrow",
+        system: {
+            time: { value: "2" },
+            traits: { value: ["attack", "evocation", "acid"] },
+        },
+    },
+    flags: {
+        pf2e: {
+            context: {
+                type: "spell-cast",
+                options: ["action:cast-a-spell", "trait:attack"],
+            },
+        },
+        "pf2e-auto-action-tracker": {
+            isExplicitUse: true,
+        },
+    },
+};
+
+assert.equal(SpellDetector.isType(acidArrowSpellMsg), true);
+assert.deepEqual(SpellDetector.getDetails(acidArrowSpellMsg), {
+    cost: 2,
+    slug: "acid-arrow",
+    label: "Acid Arrow",
+    isReaction: false,
+    rank: 1,
+    isMapRelevant: true,
+    mapProfile: "standard",
+});
+
+const healSpellMsg = {
+    flavor: '<span class="action-glyph">2</span>',
+    content: "",
+    item: {
+        type: "spell",
+        name: "Heal",
+        slug: "heal",
+        system: {
+            time: { value: "2" },
+            traits: { value: ["healing", "necromancy"] },
+        },
+    },
+    flags: {
+        pf2e: {
+            context: {
+                type: "spell-cast",
+                options: ["action:cast-a-spell"],
+            },
+        },
+        "pf2e-auto-action-tracker": {
+            isExplicitUse: true,
+        },
+    },
+};
+
+assert.equal(SpellDetector.isType(healSpellMsg), true);
+assert.deepEqual(SpellDetector.getDetails(healSpellMsg), {
+    cost: 2,
+    slug: "heal",
+    label: "Heal",
+    isReaction: false,
+    rank: 1,
 });
 
 const systemDrainTooltip = "Used: Slowed 1";

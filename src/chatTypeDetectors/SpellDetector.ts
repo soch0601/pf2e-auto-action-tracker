@@ -66,13 +66,47 @@ export class SpellDetector {
             || item?.system?.level?.value
             || 1;
 
+        const context = flags.context;
+        const options = context?.options || [];
+        const contextTraits = context?.traits || [];
+        const itemTraits = item?.traits;
+        const systemTraits = item?.system?.traits?.value;
+
+        const hasAttackTrait =
+            options.includes("attack") ||
+            options.includes("trait:attack") ||
+            options.includes("item:trait:attack") ||
+            contextTraits.includes("attack") ||
+            itemTraits?.has?.("attack") ||
+            itemTraits?.includes?.("attack") ||
+            itemTraits?.value?.includes?.("attack") ||
+            systemTraits?.includes?.("attack") ||
+            false;
+
+        const hasAgileTrait =
+            options.includes("agile") ||
+            itemTraits?.has?.("agile") ||
+            itemTraits?.includes?.("agile") ||
+            itemTraits?.value?.includes?.("agile") ||
+            systemTraits?.includes?.("agile") ||
+            contextTraits.includes("agile") ||
+            options.includes("item:trait:agile") ||
+            options.includes("trait:agile") ||
+            false;
+
+        const mapMetadata = hasAttackTrait ? {
+            isMapRelevant: true,
+            mapProfile: (hasAgileTrait ? "agile" : "standard") as "agile" | "standard"
+        } : {};
+
         if (slug === 'force-barrage') {
             return {
                 cost: (entry: any) => 0, // Placeholder, will be re-hydrated later as storing in DB dehydrates
                 slug,
                 label,
                 isReaction,
-                rank
+                rank,
+                ...mapMetadata
             };
         }
 
@@ -83,12 +117,12 @@ export class SpellDetector {
 
         if (variableActionFlag) {
             const parsed = parseInt(variableActionFlag.split(":").pop() || "0");
-            return { cost: isNaN(parsed) ? 0 : parsed, slug, label, isReaction, rank };
+            return { cost: isNaN(parsed) ? 0 : parsed, slug, label, isReaction, rank, ...mapMetadata };
         }
 
         // 3. Cost Calculation - Priority 2: DOM/Flavor Sniffing
         const tempCost = getCostFromMsgFlavor(htmlPool);
-        if (tempCost) return { cost: tempCost, slug, label, isReaction, rank };
+        if (tempCost) return { cost: tempCost, slug, label, isReaction, rank, ...mapMetadata };
 
         // 4. Cost Calculation - Final Fallback: Item System Data
         let cost = 2;
@@ -100,7 +134,7 @@ export class SpellDetector {
             cost = isNaN(parsed) ? 2 : parsed;
         }
 
-        return { cost, slug, label, isReaction, rank };
+        return { cost, slug, label, isReaction, rank, ...mapMetadata };
     }
 }
 
