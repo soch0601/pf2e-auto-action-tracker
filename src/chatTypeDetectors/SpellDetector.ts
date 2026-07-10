@@ -91,7 +91,7 @@ export class SpellDetector {
 
         if (variableActionFlag) {
             const parsed = parseInt(variableActionFlag.split(":").pop() || "0");
-            return { cost: isNaN(parsed) ? 0 : parsed, slug, label, isReaction, rank, ...mapMetadata };
+            return { cost: Number.isNaN(parsed) ? 0 : parsed, slug, label, isReaction, rank, ...mapMetadata };
         }
 
         // 3. Cost Calculation - Priority 2: DOM/Flavor Sniffing
@@ -105,7 +105,7 @@ export class SpellDetector {
             cost = 0;
         } else if (typeof rawValue === "string") {
             const parsed = parseInt(rawValue);
-            cost = isNaN(parsed) ? 2 : parsed;
+            cost = Number.isNaN(parsed) ? 2 : parsed;
         }
 
         return { cost, slug, label, isReaction, rank, ...mapMetadata };
