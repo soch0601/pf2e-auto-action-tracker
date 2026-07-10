@@ -1,6 +1,6 @@
 import type { IActionDetector } from './IActionDetector.ts';
-import { getIsReaction } from './detectorUtilities.ts';
-import { getSkillActionMapMetadata } from './skillMapMetadata.ts';
+import { getIsReaction, stripHtml } from './detectorUtilities.ts';
+import { getActionMapMetadata } from './actionMapMetadata.ts';
 
 export class SkillDetector {
     static readonly id = "SkillDetector";
@@ -28,8 +28,7 @@ export class SkillDetector {
         // 4. Clean the Label
         let label = context?.title || "Skill Check";
         if (label.includes("<")) {
-            // Strip HTML tags and clean up whitespace
-            label = label.replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+            label = stripHtml(label).replace(/\s+/g, " ").trim();
             // Optional: If the label is "Shove 1 (Athletics Check)", 
             // you could regex just the part inside <strong> if you want it even cleaner.
         }
@@ -37,7 +36,7 @@ export class SkillDetector {
         const cost = 1;
         const htmlPool = `${message.flavor || ""} ${message.content || ""}`.trim();
         const isReaction = getIsReaction(message.item, message.flags?.pf2e, htmlPool);
-        const mapMetadata = getSkillActionMapMetadata(message);
+        const mapMetadata = getActionMapMetadata(message);
 
         return {
             cost,

@@ -1,6 +1,7 @@
 import type { IActionDetector } from './IActionDetector.ts';
 import { SCOPE } from '../globals.ts';
 import { getCostFromMsgFlavor, getIsReaction, getLabelFromMsgFlavor, getSlugFromMsgFlavor } from './detectorUtilities.ts';
+import { getActionMapMetadata } from './actionMapMetadata.ts';
 
 export class SpellDetector {
 
@@ -66,13 +67,20 @@ export class SpellDetector {
             || item?.system?.level?.value
             || 1;
 
+        const mapMetadataRaw = getActionMapMetadata(message);
+        const mapMetadata = mapMetadataRaw.isMapRelevant ? {
+            isMapRelevant: true,
+            mapProfile: mapMetadataRaw.mapProfile
+        } : {};
+
         if (slug === 'force-barrage') {
             return {
                 cost: (entry: any) => 0, // Placeholder, will be re-hydrated later as storing in DB dehydrates
                 slug,
                 label,
                 isReaction,
-                rank
+                rank,
+                ...mapMetadata
             };
         }
 
@@ -83,12 +91,12 @@ export class SpellDetector {
 
         if (variableActionFlag) {
             const parsed = parseInt(variableActionFlag.split(":").pop() || "0");
-            return { cost: isNaN(parsed) ? 0 : parsed, slug, label, isReaction, rank };
+            return { cost: Number.isNaN(parsed) ? 0 : parsed, slug, label, isReaction, rank, ...mapMetadata };
         }
 
         // 3. Cost Calculation - Priority 2: DOM/Flavor Sniffing
         const tempCost = getCostFromMsgFlavor(htmlPool);
-        if (tempCost) return { cost: tempCost, slug, label, isReaction, rank };
+        if (tempCost) return { cost: tempCost, slug, label, isReaction, rank, ...mapMetadata };
 
         // 4. Cost Calculation - Final Fallback: Item System Data
         let cost = 2;
@@ -97,10 +105,10 @@ export class SpellDetector {
             cost = 0;
         } else if (typeof rawValue === "string") {
             const parsed = parseInt(rawValue);
-            cost = isNaN(parsed) ? 2 : parsed;
+            cost = Number.isNaN(parsed) ? 2 : parsed;
         }
 
-        return { cost, slug, label, isReaction, rank };
+        return { cost, slug, label, isReaction, rank, ...mapMetadata };
     }
 }
 

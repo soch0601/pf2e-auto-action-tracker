@@ -1,3 +1,19 @@
+export function stripHtml(html: string): string {
+    let result = "";
+    let inTag = false;
+    for (let i = 0; i < html.length; i++) {
+        const char = html[i];
+        if (char === "<") {
+            inTag = true;
+        } else if (char === ">") {
+            inTag = false;
+        } else if (!inTag) {
+            result += char;
+        }
+    }
+    return result;
+}
+
 export function getCostFromMsgFlavor(htmlString: string): number | undefined {
     const tempDiv = document.createElement("div");
     tempDiv.innerHTML = htmlString;
