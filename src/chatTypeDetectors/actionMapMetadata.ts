@@ -1,11 +1,11 @@
 type MapProfile = "standard" | "agile";
 
-type SkillMapMetadata = {
+type ActionMapMetadata = {
     isMapRelevant: boolean;
     mapProfile?: MapProfile;
 };
 
-export function getSkillActionMapMetadata(message: any): SkillMapMetadata {
+export function getActionMapMetadata(message: any): ActionMapMetadata {
     const context = message.flags?.pf2e?.context;
     const options = context?.options || [];
     const contextTraits = context?.traits || [];

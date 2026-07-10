@@ -1,6 +1,7 @@
 import type { IActionDetector } from './IActionDetector.ts';
 import { SCOPE } from '../globals.ts';
 import { getCostFromMsgFlavor, getIsReaction, getLabelFromMsgFlavor, getSlugFromMsgFlavor } from './detectorUtilities.ts';
+import { getActionMapMetadata } from './actionMapMetadata.ts';
 
 export class SpellDetector {
 
@@ -66,37 +67,10 @@ export class SpellDetector {
             || item?.system?.level?.value
             || 1;
 
-        const context = flags.context;
-        const options = context?.options || [];
-        const contextTraits = context?.traits || [];
-        const itemTraits = item?.traits;
-        const systemTraits = item?.system?.traits?.value;
-
-        const hasAttackTrait =
-            options.includes("attack") ||
-            options.includes("trait:attack") ||
-            options.includes("item:trait:attack") ||
-            contextTraits.includes("attack") ||
-            itemTraits?.has?.("attack") ||
-            itemTraits?.includes?.("attack") ||
-            itemTraits?.value?.includes?.("attack") ||
-            systemTraits?.includes?.("attack") ||
-            false;
-
-        const hasAgileTrait =
-            options.includes("agile") ||
-            itemTraits?.has?.("agile") ||
-            itemTraits?.includes?.("agile") ||
-            itemTraits?.value?.includes?.("agile") ||
-            systemTraits?.includes?.("agile") ||
-            contextTraits.includes("agile") ||
-            options.includes("item:trait:agile") ||
-            options.includes("trait:agile") ||
-            false;
-
-        const mapMetadata = hasAttackTrait ? {
+        const mapMetadataRaw = getActionMapMetadata(message);
+        const mapMetadata = mapMetadataRaw.isMapRelevant ? {
             isMapRelevant: true,
-            mapProfile: (hasAgileTrait ? "agile" : "standard") as "agile" | "standard"
+            mapProfile: mapMetadataRaw.mapProfile
         } : {};
 
         if (slug === 'force-barrage') {

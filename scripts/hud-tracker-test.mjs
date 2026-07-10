@@ -77,7 +77,7 @@ const {
     resolveTrackerMount,
     shouldShowTrackerForMount,
 } = await import("../src/trackerAdapters.ts");
-const { getSkillActionMapMetadata } = await import("../src/chatTypeDetectors/skillMapMetadata.ts");
+const { getActionMapMetadata } = await import("../src/chatTypeDetectors/actionMapMetadata.ts");
 const {
     getMapProfile,
     getCurrentMapState,
@@ -330,7 +330,7 @@ const grappleMessage = {
     },
 };
 
-assert.deepEqual(getSkillActionMapMetadata(grappleMessage), {
+assert.deepEqual(getActionMapMetadata(grappleMessage), {
     isMapRelevant: true,
     mapProfile: "standard",
 });
@@ -358,7 +358,7 @@ const tripMessageWithSystemTraits = {
     },
 };
 
-assert.deepEqual(getSkillActionMapMetadata(tripMessageWithSystemTraits), {
+assert.deepEqual(getActionMapMetadata(tripMessageWithSystemTraits), {
     isMapRelevant: true,
     mapProfile: "standard",
 });
@@ -386,7 +386,7 @@ const grappleChatPayload = {
     },
 };
 
-assert.deepEqual(getSkillActionMapMetadata(grappleChatPayload), {
+assert.deepEqual(getActionMapMetadata(grappleChatPayload), {
     isMapRelevant: true,
     mapProfile: "standard",
 });

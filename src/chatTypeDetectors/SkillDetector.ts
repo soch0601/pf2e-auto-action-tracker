@@ -1,6 +1,6 @@
 import type { IActionDetector } from './IActionDetector.ts';
 import { getIsReaction } from './detectorUtilities.ts';
-import { getSkillActionMapMetadata } from './skillMapMetadata.ts';
+import { getActionMapMetadata } from './actionMapMetadata.ts';
 
 export class SkillDetector {
     static readonly id = "SkillDetector";
@@ -37,7 +37,7 @@ export class SkillDetector {
         const cost = 1;
         const htmlPool = `${message.flavor || ""} ${message.content || ""}`.trim();
         const isReaction = getIsReaction(message.item, message.flags?.pf2e, htmlPool);
-        const mapMetadata = getSkillActionMapMetadata(message);
+        const mapMetadata = getActionMapMetadata(message);
 
         return {
             cost,
