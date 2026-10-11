@@ -157,7 +157,7 @@ export class WrapperManager {
 
                 if (event) {
                     const target = event.target as HTMLElement;
-                    const isExplicitAction = !!target.closest('[data-action*="use"], [data-action*="consume"], [data-action*="activate"], [data-action*="cast"], .use-item');
+                    const isExplicitAction = !!target.closest('[data-action*="use"], [data-action*="consume"], [data-action*="activate"], [data-action*="cast"], .use-item, .use-action');
                     const isLinkClick = !!target.closest('[data-action$="to-chat"], [data-action$="to-message"], [data-action="toMessage"], .item-to-chat');
 
                     if (isToMessage) {
