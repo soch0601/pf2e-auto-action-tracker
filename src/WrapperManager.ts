@@ -152,13 +152,16 @@ export class WrapperManager {
                 // 1. Mark intent for detection - ONLY if it's an explicit use (not a link)
                 const event = args.find(a => a instanceof Event);
                 const isToMessage = methodName === "toMessage";
+                console.log('args: ', args);
 
                 let isUse = !isToMessage;
 
                 if (event) {
                     const target = event.target as HTMLElement;
-                    const isExplicitAction = !!target.closest('[data-action*="use"], [data-action*="consume"], [data-action*="activate"], [data-action*="cast"], .use-item');
+                    const isExplicitAction = !!target.closest('[data-action*="use"], [data-action*="consume"], [data-action*="activate"], [data-action*="cast"], .use-item, .use-action');
                     const isLinkClick = !!target.closest('[data-action$="to-chat"], [data-action$="to-message"], [data-action="toMessage"], .item-to-chat');
+                    console.log('target.closest: ', target.closest('[data-action*="use"], [data-action*="consume"], [data-action*="activate"], [data-action*="cast"], .use-item'));
+                    console.log('isExplicityAction: ', isExplicitAction, ' and isLinkClick: ', isLinkClick, 'and target: ', target);
 
                     if (isToMessage) {
                         // toMessage is a link unless there is no dedicated use from frequency (PF2E system) - so count it if needed
@@ -173,11 +176,14 @@ export class WrapperManager {
                     const item = this as any;
                     const type = item.type;
                     const name = item.name;
+                    console.log('item: ', item, ' and type: ', type, ' and name: ', name);
 
                     if (["action", "feat"].includes(type)) {
                         isUse = true;
                     }
                 }
+
+
 
                 if (detectionKey && isUse) {
                     recentIntent.set(detectionKey, this.id);
