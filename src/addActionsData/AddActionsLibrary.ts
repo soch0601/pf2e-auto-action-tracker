@@ -35,5 +35,12 @@ export const AddActionsLibrary: Record<string, ExtraSlotDefinition> = {
         type: "reaction",
         grants: 1,
         allowedSlugs: ["implements-interruption", "amulets-abeyance", "bells-disruption"]
+    },
+    "reaction-time": {
+        name: "Reaction Time",
+        slug: "reaction-time",
+        type: "reaction",
+        grants: 1,
+        allowedSlugs: ["clang!", "clang", "intercept-attack", "not-so-fast!", "not-so-fast", "reactive-shield", "reactive-strike", "shield-block", "shield-from-arrows"]
     }
 };
