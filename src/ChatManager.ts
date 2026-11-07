@@ -85,8 +85,6 @@ export class ChatManager {
             const { getSlugFromMsgFlavor } = await import("./chatTypeDetectors/detectorUtilities.ts");
             const slug = pf2eFlags.context.action || getSlugFromMsgFlavor(htmlPool) || "attack";
 
-            const rawItemUsageFromFlag = message.getFlag(SCOPE, "itemUsage") as any;
-
             const isSpellAttack = message.item?.type === "spell" || slug.toLowerCase().includes("spell");
             if (isSpellAttack) {
                 const { ActionManager } = await import("./ActionManager.ts");

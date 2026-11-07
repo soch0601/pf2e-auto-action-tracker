@@ -228,7 +228,13 @@ export class WrapperManager {
 
                 // 3. If the result is a chat message, we can also set the flag for persistence
                 if (isUse && usage && result instanceof (game as any).messages.documentClass) {
-                    await result.setFlag(SCOPE, "itemUsage", usage);
+                    if (result.id) {
+                        await result.setFlag(SCOPE, "itemUsage", usage);
+                    } else {
+                        result.updateSource({
+                            [`flags.${SCOPE}.itemUsage`]: usage
+                        });
+                    }
                 }
 
                 return result;
