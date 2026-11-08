@@ -1,6 +1,6 @@
 {
   "name": "pf2e-auto-action-tracker",
-  "version": "0.19.4",
+  "version": "0.19.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
