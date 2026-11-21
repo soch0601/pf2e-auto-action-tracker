@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { MovementManager } from "../src/MovementManager.ts";
+import { MovementHistoryService } from "../src/MovementHistoryService.ts";
 import { ActionManager as ActualActionManager } from "../src/ActionManager.ts";
 import { GlobalConfig } from "../src/globals.ts";
 import { ActorManager } from "../src/ActorManager.ts";
-import { SocketsManager } from "../src/SocketManager.ts";
-import { ChatManager } from "../src/ChatManager.ts";
+import { SocketsManager } from "../src/sockets/index.ts";
+import { ChatManager } from "../src/chat/ChatManager.ts";
 
 // Mocking Foundry globals
 globalThis.game = {
@@ -49,8 +50,10 @@ SocketsManager.socket = {
     register: () => { }
 };
 
-// Mock ChatManager
+// Mock ChatManager and AlertService
 ChatManager.triggerAlert = () => { };
+const { AlertService } = await import("../src/chat/AlertService.ts");
+AlertService.triggerAlert = async () => { };
 
 // Mock ActionManager to avoid side effects
 const mockActions = new Map();
@@ -87,7 +90,7 @@ ActualActionManager.removeAction = async (combatant, msgId) => {
     const newList = list.filter(a => a.entry.msgId !== msgId);
     mockActions.set(combatant.id, newList);
     // Simulate reset
-    MovementManager.broadcastReset(combatant.token?.id || "t1");
+    MovementHistoryService.broadcastReset(combatant.token?.id || "t1");
 };
 ActualActionManager.getLastAction = (combatant) => {
     const list = mockActions.get(combatant.id) || [];
@@ -167,7 +170,7 @@ async function runTests() {
             mockToken.x = 0;
             mockToken.y = 0;
             mockToken._movementHistory = [];
-            MovementManager.resetCapturedHistory("t1");
+            MovementHistoryService.resetCapturedHistory("t1");
         }
 
         async function moveToken(x, y) {

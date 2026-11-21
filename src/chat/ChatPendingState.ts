@@ -1,4 +1,4 @@
-import type { SpellSlotUsage } from "./ActionLogTypes.ts";
+import type { SpellSlotUsage } from "../ActionLogTypes.ts";
 
 export class ChatPendingState {
     private static pendingDamageOrigins = new Map<string, { originMsgId: string, combatantId: string }>();

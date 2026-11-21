@@ -1,4 +1,4 @@
-import type { ActionLogEntry } from "../ActionManager";
+import type { ActionLogEntry } from "../ActionLogTypes.ts";
 
 export interface ExtraSlotDefinition {
     name: string;            // e.g., "Opportune Attack"

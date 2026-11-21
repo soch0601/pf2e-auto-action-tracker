@@ -1,5 +1,3 @@
-import type { ActionLogEntry } from "../ActionManager";
-
 /** Supported basic action identifiers */
 export type ActionSlug = 'strike' | 'move' | 'reload' | 'draw' | 'cast' | 'skill-check' | string;
 
@@ -46,7 +44,7 @@ export interface SpecialActivity {
 }
 
 /** The runtime state stored in Combatant flags */
-export interface LeafState {
+export interface LeafState<TActionLogEntry = any> {
     id: string; // "action-0", "action-1", etc.
     type: ActionType;
     subtype?: string;
@@ -58,16 +56,16 @@ export interface LeafState {
     maxOccurrences: number;
     satisfied: boolean; // Hit the mininum (no sequence broken warning)
     isClosed: boolean;  // Hit the maximum OR manually completed - do not accept more
-    childActions: ActionLogEntry[];
+    childActions: TActionLogEntry[];
 }
 
-export interface ActiveActivityState {
+export interface ActiveActivityState<TActionLogEntry = any> {
     activitySlug: string;
     parentMessageId: string;
     completedBy?: string | undefined;
     combinedDamageMessageId?: string;
     // Flat map of leaf states for quick lookup/revert
-    leaves: Record<string, LeafState>;
-    orderedActivityChildActions: ActionLogEntry[];
+    leaves: Record<string, LeafState<TActionLogEntry>>;
+    orderedActivityChildActions: TActionLogEntry[];
     historyAnchorIndex: number;
 }

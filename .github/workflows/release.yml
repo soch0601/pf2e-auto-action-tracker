@@ -47,37 +47,74 @@ jobs:
       - name: Build Code
         run: npm run build
 
-      - name: Update Manifest and Push
+      - name: Update Manifest, Changelog, and Push
+        id: update_changelog
         run: |
           VER="${{ steps.get_version.outputs.VERSION }}"
           REPO="${{ github.repository }}"
-          
-          # Update the file
+          DATE=$(date -u +"%Y-%m-%d")
+
+          # 1. Update module.json
           jq --arg ver "$VER" --arg repo "$REPO" \
             '.version = $ver | 
              .manifest = "https://github.com/" + $repo + "/releases/latest/download/module.json" | 
-             .download = "https://github.com/" + $repo + "/releases/download/v" + $ver + "/pf2e-auto-action-tracker.zip"' \
+             .download = "https://github.com/" + $repo + "/releases/download/v" + $ver + "/pf2e-auto-action-tracker.zip" |
+             .changelog = "https://github.com/" + $repo + "/blob/main/CHANGELOG.md"' \
              module.json > temp.json && mv temp.json module.json
-          
-          # Configure Git
+
+          # 2. Extract commit messages since last tag (excluding automated [skip ci] commits)
+          LAST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$LAST_TAG" ]; then
+            COMMIT_NOTES=$(git log "${LAST_TAG}..HEAD" --grep="\[skip ci\]" --invert-grep --pretty=format:"%B" | sed '/^[[:space:]]*$/N;/^\n$/D')
+          fi
+          if [ -z "$COMMIT_NOTES" ]; then
+            COMMIT_NOTES=$(git log -1 --pretty=%B)
+          fi
+
+          # Save notes for the GitHub Release body
+          EOF_MARKER="EOF_$(date +%s)"
+          echo "NOTES<<$EOF_MARKER" >> $GITHUB_OUTPUT
+          echo "$COMMIT_NOTES" >> $GITHUB_OUTPUT
+          echo "$EOF_MARKER" >> $GITHUB_OUTPUT
+
+          # 3. Prepend new version section to CHANGELOG.md if not already present
+          VER="$VER" DATE="$DATE" COMMIT_NOTES="$COMMIT_NOTES" node -e '
+            const fs = require("fs");
+            const ver = process.env.VER;
+            const date = process.env.DATE;
+            const notes = (process.env.COMMIT_NOTES || "").trim();
+            const header = "# Changelog\n\nAll notable changes to **PF2E Automated Action Tracker** are documented in this file.\n";
+            let content = fs.existsSync("CHANGELOG.md") ? fs.readFileSync("CHANGELOG.md", "utf8") : header;
+            if (!content.includes(`## [v${ver}]`)) {
+              const entry = `\n## [v${ver}] - ${date}\n${notes}\n`;
+              const firstSectionIdx = content.indexOf("\n## ");
+              if (firstSectionIdx !== -1) {
+                content = content.slice(0, firstSectionIdx) + entry + content.slice(firstSectionIdx);
+              } else {
+                content = content.trimEnd() + "\n" + entry;
+              }
+              fs.writeFileSync("CHANGELOG.md", content, "utf8");
+            }
+          '
+
+          # 4. Configure Git & Push back to main
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          
-          # Commit and Push (only if changes were made to module.json)
-          git add module.json
+
+          git add module.json CHANGELOG.md
           if ! git diff-index --quiet HEAD; then
             # [skip ci] is vital to prevent the action from triggering itself
-            git commit -m "chore: update manifest to v$VER [skip ci]"
+            git commit -m "chore: update manifest and changelog to v$VER [skip ci]"
             git push origin main
           else
-            echo "No changes to module.json detected. Skipping git commit and push."
+            echo "No changes to module.json or CHANGELOG.md detected. Skipping git commit and push."
           fi
 
       - name: Create ZIP
         run: |
           mkdir -p pf2e-auto-action-tracker
           cp -r dist/* pf2e-auto-action-tracker/
-          cp module.json README.md pf2e-auto-action-tracker/
+          cp module.json README.md CHANGELOG.md pf2e-auto-action-tracker/
           zip -r pf2e-auto-action-tracker.zip pf2e-auto-action-tracker/
 
       # 2. Create GitHub Release
@@ -86,7 +123,7 @@ jobs:
         with:
           tag_name: v${{ steps.get_version.outputs.VERSION }}
           name: v${{ steps.get_version.outputs.VERSION }}
-          body: ${{ steps.github_release.outputs.changelog }} # Uses the automated notes
+          body: ${{ steps.update_changelog.outputs.NOTES || steps.github_release.outputs.changelog }}
           files: |
             module.json
             pf2e-auto-action-tracker.zip

@@ -477,7 +477,8 @@ const systemDrainTooltip = "Used: Slowed 1";
 assert.equal(systemDrainTooltip, "Used: Slowed 1");
 
 const css = readFileSync(join(__dirname, "../public/style.css"), "utf8");
-const combatUiSource = readFileSync(join(__dirname, "../src/CombatUIManager.ts"), "utf8");
+const combatUiSource = readFileSync(join(__dirname, "../src/ui/CombatUIManager.ts"), "utf8");
+const pipRendererSource = readFileSync(join(__dirname, "../src/ui/TrackerPipRenderer.ts"), "utf8");
 const mainSource = readFileSync(join(__dirname, "../src/main.ts"), "utf8");
 const hudCombatantRule = getCssRule(css, "#pf2e-hud-tracker .combatants .combatant");
 const hudControlsRule = getCssRule(css, "#pf2e-hud-tracker .combatants .combatant .details .controls");
@@ -503,7 +504,7 @@ assert.match(hudActionLineRule, /flex-wrap:\s*nowrap/);
 assert.match(hudActionLineRule, /white-space:\s*nowrap/);
 assert.match(hudDividerRule, /margin:\s*0 3px/);
 assert.match(hudDividerRule, /width:\s*3px/);
-assert.match(combatUiSource, /const MAX_PIPS = 6/);
+assert.match(pipRendererSource, /MAX_PIPS = 6/);
 assert.match(combatUiSource, /if \(pip\.isGold && i < pipsToRender\.length - 1 && !pipsToRender\[i \+ 1\]\.isGold\)/);
 assert.match(combatUiSource, /if \(overflowCount > 0 && !isCompact\)/);
 assert.doesNotMatch(combatUiSource, /applyPf2eHudRowHeight/);

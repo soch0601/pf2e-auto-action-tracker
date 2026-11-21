@@ -1,35 +1,32 @@
-import type { ActionLogEntry } from "./ActionLogTypes.ts";
-import { SCOPE, recentIntent } from "./globals.ts";
+import type { ActionLogEntry } from "../ActionLogTypes.ts";
+import { SCOPE, recentIntent } from "../globals.ts";
 import type { ActorPF2e, CombatantPF2e } from "module-helpers";
-import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
-import { SettingsManager } from "./SettingsManager.ts";
-import { ActorManager } from "./ActorManager.ts";
-import { logError, logInfo } from "./logger.ts";
-import * as Detectors from "./chatTypeDetectors/index.ts";
-import type { IActionDetails, DetectedAction } from "./chatTypeDetectors/IActionDetector.ts";
-import { findCombatantByMessage, findCombatantById, getOpenApplications, isCurrentUserActiveGM, renderHandlebarsTemplate } from "./foundryCompat.ts";
+import { ComplexActionEngine } from "../complexActions/ComplexActionEngine.ts";
+import { ActorManager } from "../ActorManager.ts";
+import { logInfo } from "../logger.ts";
+import * as Detectors from "../chatTypeDetectors/index.ts";
+import type { IActionDetails, DetectedAction } from "../chatTypeDetectors/IActionDetector.ts";
+import { findCombatantByMessage, findCombatantById, getOpenApplications, isCurrentUserActiveGM } from "../foundryCompat.ts";
 import { ChatPendingState } from "./ChatPendingState.ts";
+import { ChatMessageService } from "./ChatMessageService.ts";
+import { AlertService } from "./AlertService.ts";
+import { SustainReminderService } from "./SustainReminderService.ts";
+import { SocketSender } from "../sockets/SocketSender.ts";
+import { ActionManager } from "../ActionManager.ts";
+import { DamageCombinator } from "../damageCombinator.ts";
+import { getSlugFromMsgFlavor } from "../chatTypeDetectors/detectorUtilities.ts";
 
 type CombatantId = string;
 
 export class ChatManager {
     private static rerollQueue: Record<CombatantId, string[]> = {};
 
-    public static async deleteMessage(msgId: string) {
-        const msg = game.messages.get(msgId);
-        if (msg) {
-            try {
-                await (msg as any).delete({});
-            } catch (err) {
-                logError(`ChatManager | FAILED to delete message ${msgId}:`, err);
-            }
-        }
+    public static deleteMessage(msgId: string) {
+        return ChatMessageService.deleteMessage(msgId);
     }
 
-    public static async deleteMessages(msgIds: string[]) {
-        for (const msgId of msgIds) {
-            await this.deleteMessage(msgId);
-        }
+    public static deleteMessages(msgIds: string[]) {
+        return ChatMessageService.deleteMessages(msgIds);
     }
 
     public static async handleChatPayload(message: any) {
@@ -53,7 +50,6 @@ export class ChatManager {
                         }
                     }
                     if (actorUuid) {
-                        const { ActionManager } = await import("./ActionManager.ts");
                         await ActionManager.linkDamageApplicationToAction(targetCombatant, originMsgId, actorUuid, message.id);
                     }
                 }
@@ -82,12 +78,10 @@ export class ChatManager {
         // --- Enhanced Undo: Link Spell Attack Rolls ---
         if (pf2eFlags?.context?.type === "attack-roll") {
             const htmlPool = `${message.flavor || ""} ${message.content || ""}`.trim();
-            const { getSlugFromMsgFlavor } = await import("./chatTypeDetectors/detectorUtilities.ts");
             const slug = pf2eFlags.context.action || getSlugFromMsgFlavor(htmlPool) || "attack";
 
             const isSpellAttack = message.item?.type === "spell" || slug.toLowerCase().includes("spell");
             if (isSpellAttack) {
-                const { ActionManager } = await import("./ActionManager.ts");
                 const originUuid = pf2eFlags.origin?.uuid;
 
                 const queue = (c.getFlag(SCOPE, 'pendingAttackQueue') as string[]) || [];
@@ -124,7 +118,6 @@ export class ChatManager {
                 return;
             }
 
-            const { ActionManager } = await import("./ActionManager.ts");
             const action = ActionManager.getActionById(combatant, oldMsgId);
             if (!action) {
                 logInfo(`Reroll detected for ${oldMsgId}, but no matching action was found in history.`);
@@ -154,7 +147,6 @@ export class ChatManager {
         const isQuickenedEligible = data.isQuickenedEligible ?? ActorManager.isActionQuickenedEligible(combatant, data.slug || "");
 
         // Check if we are updating an existing message or logging a new one
-        const { ActionManager } = await import("./ActionManager.ts");
         const log = ActionManager.getActionById(combatant, message.id);
 
         const mapMetadata: Pick<ActionLogEntry, "isMapRelevant" | "mapProfile"> =
@@ -202,7 +194,6 @@ export class ChatManager {
     }
 
     public static async linkDamageRollToAction(combatant: CombatantPF2e, attackMsgId: string, damageMsgId: string) {
-        const { ActionManager } = await import("./ActionManager.ts");
         let entry = ActionManager.getActionById(combatant, attackMsgId);
 
         if (!entry) {
@@ -223,7 +214,6 @@ export class ChatManager {
             );
 
             if (updatedParent && updatedParent.ComplexActionState) {
-                const { DamageCombinator } = await import("./damageCombinator.ts");
                 await DamageCombinator.processDamageCombination(combatant, updatedParent, damageMsgId);
             }
         }
@@ -267,7 +257,6 @@ export class ChatManager {
                 const speaker = message.speaker || {};
                 const itemOriginUuid = message.flags?.pf2e?.origin?.uuid;
                 const itemOriginId = message.flags?.pf2e?.origin?.uuid?.split('.').pop();
-                const { ActionManager } = await import("./ActionManager.ts");
                 const logs = ActionManager.getFlattenedActions(combatant);
 
                 const matchingAction = logs.find(log => {
@@ -308,54 +297,12 @@ export class ChatManager {
         return originatingMsgId;
     }
 
-    public static async checkSustainReminder(combatant: CombatantPF2e) {
-        if (!SettingsManager.get("whisperSustain")) return;
-
-        const c = combatant as any;
-        const actor = c.actor;
-        if (!actor?.name) return;
-
-        const { DBManager } = await import("./DBManager.ts");
-        const sustainData = DBManager.getSustainData(combatant);
-
-        if (Object.keys(sustainData).length > 0) {
-            for (const [itemId, itemName] of Object.entries(sustainData)) {
-                const content = await renderHandlebarsTemplate(`modules/${SCOPE}/templates/sustain-reminder.hbs`, {
-                    combatantId: c.id,
-                    actorId: actor.id,
-                    itemId: itemId,
-                    itemName: itemName
-                });
-
-                const gmUserIds = game.users.filter((u: any) => u.isGM).map((u: any) => u.id);
-                const ownerUserIds = Object.entries(actor.ownership || {})
-                    .filter(([id, level]) => level === 3 && id !== "default")
-                    .map(([id]) => id);
-                const whisperUserIds = Array.from(new Set([...gmUserIds, ...ownerUserIds]));
-
-                await ChatMessage.create({
-                    content: content,
-                    whisper: whisperUserIds,
-                    speaker: ChatMessage.getSpeaker({ actor: actor })
-                });
-            }
-        }
+    public static checkSustainReminder(combatant: CombatantPF2e) {
+        return SustainReminderService.checkSustainReminder(combatant);
     }
 
-    public static async triggerAlert(actor: ActorPF2e, header: string, message: string, settingKey: string) {
-        const playerIds = Object.entries(actor.ownership)
-            .filter(([id, level]) => level === 3 && id !== "default")
-            .map(([id]) => id);
-
-        const payload = {
-            targetPlayerIds: playerIds,
-            header,
-            message,
-            setting: settingKey
-        };
-
-        const { SocketsManager } = await import("./SocketManager.ts");
-        SocketsManager.socket.executeForEveryone("attemptWhisper", payload);
+    public static triggerAlert(actor: ActorPF2e, header: string, message: string, settingKey: string) {
+        return AlertService.triggerAlert(actor, header, message, settingKey);
     }
 
     public static addToRerollQueue(combatantId: string, msgId: string) {
@@ -365,11 +312,10 @@ export class ChatManager {
         }
     }
 
-    public static async broadcastReroll(combatantId: string, msgId: string) {
+    public static broadcastReroll(combatantId: string, msgId: string) {
         this.addToRerollQueue(combatantId, msgId);
         if (!isCurrentUserActiveGM()) {
-            const { SocketsManager } = await import("./SocketManager.ts");
-            SocketsManager.socket.executeAsGM("queueReroll", { combatantId, msgId });
+            SocketSender.sendQueueReroll(combatantId, msgId);
         }
     }
 
@@ -383,7 +329,6 @@ export class ChatManager {
 
     public static async handleDeletedMessage(combatant: CombatantPF2e, msgId: string) {
         if (this.rerollQueueIncludes(combatant, msgId)) return;
-        const { ActionManager } = await import("./ActionManager.ts");
         await ActionManager.removeAction(combatant, msgId);
     }
 

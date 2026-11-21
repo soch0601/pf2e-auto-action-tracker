@@ -1,6 +1,9 @@
-import { SCOPE, recentIntent } from "./globals.ts";
-import { getActorAndTokenFromSheet, findCombatantByMessage, findCombatantById, findCombatantByTokenOrActor } from "./foundryCompat.ts";
+import { SCOPE, recentIntent } from "../globals.ts";
+import { getActorAndTokenFromSheet, findCombatantByMessage, findCombatantById, findCombatantByTokenOrActor } from "../foundryCompat.ts";
 import { ChatPendingState } from "./ChatPendingState.ts";
+import { ActionManager } from "../ActionManager.ts";
+import { DamageCombinator } from "../damageCombinator.ts";
+import { SocketSender } from "../sockets/SocketSender.ts";
 
 export class ChatCardRenderer {
     public static lastClickedMessageId: string | null = null;
@@ -18,7 +21,7 @@ export class ChatCardRenderer {
             const btnClasses = btn.className;
 
             this.handleSustainMessageItemInjection(messageId);
-            await this.handleItemStateCapture(btn, action);
+            this.handleItemStateCapture(btn, action);
 
             const lowerAction = action?.toLowerCase() || "";
             const isApplyButton =
@@ -63,7 +66,7 @@ export class ChatCardRenderer {
         }
     }
 
-    private static async handleItemStateCapture(btn: HTMLButtonElement, action: string | undefined) {
+    private static handleItemStateCapture(btn: HTMLButtonElement, action: string | undefined) {
         if (!action) return;
         if (action.includes('use') || action.includes('consume') || action.includes('activate') || action.includes('cast')) {
             const itemId = btn.dataset.itemId ||
@@ -155,11 +158,9 @@ export class ChatCardRenderer {
         const combatant = findCombatantByMessage((game as any).combat, message);
         if (!combatant || !originatingActionId) return;
 
-        const { ActionManager } = await import("./ActionManager.ts");
         const entry = ActionManager.getActionById(combatant, originatingActionId);
 
         if (entry && entry.ComplexActionState) {
-            const { DamageCombinator } = await import("./damageCombinator.ts");
             await DamageCombinator.processDamageCombination(combatant, entry, undefined, !currentCritImmuneState);
         }
     }
@@ -228,7 +229,6 @@ export class ChatCardRenderer {
                     const cId = payload.combatantId;
                     const combatant = findCombatantById(game.combat, cId);
                     if (combatant) {
-                        const { ActionManager } = await import("./ActionManager.ts");
                         const logs = ActionManager.getFlattenedActions(combatant);
                         const sustainAction = logs.find(log => log.slug === "sustain-a-spell" && log.sustainItem?.id === payload.itemId);
                         if (sustainAction) {
@@ -238,8 +238,7 @@ export class ChatCardRenderer {
                 }
                 await (message as any).unsetFlag(SCOPE, "sustainChoice");
             } else {
-                const { SocketsManager } = await import("./SocketManager.ts");
-                SocketsManager.emitResetSustainChoice(payload);
+                SocketSender.emitResetSustainChoice(payload);
             }
         });
         flexContainer.appendChild(resetBtn);
@@ -273,8 +272,7 @@ export class ChatCardRenderer {
                     }
                     await (message as any).setFlag(SCOPE, "sustainChoice", { choice, itemName, combatantId, itemId });
                 } else {
-                    const { SocketsManager } = await import("./SocketManager.ts");
-                    SocketsManager.emitSustainChoice(payload);
+                    SocketSender.emitSustainChoice(payload);
                 }
             });
         });
@@ -355,7 +353,6 @@ export class ChatCardRenderer {
         const targetCombatant = combatant || findCombatantByTokenOrActor(game.combat, null, actor.id);
 
         if (targetCombatant) {
-            const { ActionManager } = await import("./ActionManager.ts");
             await ActionManager.stopSustaining(targetCombatant, itemId);
         }
 

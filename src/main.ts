@@ -1,22 +1,22 @@
 import { ActionManager } from "./ActionManager";
 import { SettingsManager } from "./SettingsManager";
-import { CombatUIManager } from "./CombatUIManager";
-import { ItemManager } from "./ItemManager";
-import { ChatManager } from "./ChatManager";
+import { CombatUIManager } from "./ui";
+import { ItemManager } from "./items/ItemManager";
+import { ChatManager } from "./chat/ChatManager";
 import { ActorManager } from "./ActorManager";
-import { ChatCardRenderer } from "./ChatCardRenderer";
+import { ChatCardRenderer } from "./chat/ChatCardRenderer";
 import { MovementManager } from "./MovementManager";
+import { MovementHistoryService } from "./MovementHistoryService";
 import { WrapperManager } from "./WrapperManager";
-import { SocketsManager } from "./SocketManager";
+import { SocketsManager } from "./sockets";
 import { ChatMessagePF2e, CombatantPF2e, EncounterPF2e } from "module-helpers"
-import { logError, logInfo } from "./logger";
+import { logInfo } from "./logger";
 import { SCOPE, recentIntent } from "./globals";
 import { runAllConflictChecks } from "./otherModConflicts";
 import { findPf2eHudTracker } from "./trackerAdapters";
 import { findCombatantByMessage, findCombatantByTokenOrActor, findCombatantById, getCombatants, isCurrentUserActiveGM } from "./foundryCompat";
+import { enqueueAction } from "./actionQueue";
 
-// string is the combatant ID.
-const _queues = new Map<string, Promise<void>>();
 let pf2eHudObserver: MutationObserver | undefined;
 let pf2eHudObservedCombatId: string | undefined;
 let isReady = false;
@@ -300,12 +300,12 @@ Hooks.on("updateToken", (tokenDoc: any, update: any, options: any, userId: strin
     enqueueAction(combatant.id, async () => await MovementManager.handleTokenUpdate(tokenDoc, update, options));
 });
 
-// Drop captured movement state for tokens that leave the scene. The MovementManager keeps
+// Drop captured movement state for tokens that leave the scene. The MovementHistoryService keeps
 // per-token Maps (_capturedHistory, _historyLengths, _lastCoords, _lastInteractionDistance)
 // that are never otherwise pruned for deleted tokens, so without this hook those Maps grow
 // across long campaigns as tokens come and go.
 Hooks.on("deleteToken", (tokenDoc: any) => {
-    if (tokenDoc?.id) MovementManager.resetCapturedHistory(tokenDoc.id);
+    if (tokenDoc?.id) MovementHistoryService.resetCapturedHistory(tokenDoc.id);
 });
 
 
@@ -314,41 +314,3 @@ Hooks.on("createItem", (item: any) => ItemManager.handleCreateItem(item));
 Hooks.on("updateItem", (item: any, update: any) => ItemManager.handleUpdateItem(item, update));
 Hooks.on("deleteItem", (item: any) => ItemManager.handleDeleteItem(item));
 
-export async function enqueueAction(combatantId: string, actionFn: () => Promise<void>) {
-    const existingPromise = _queues.get(combatantId);
-
-    const startPromise = existingPromise || Promise.resolve();
-
-    const newPromise = startPromise.then(async () => {
-        try {
-            const start = performance.now();
-            await actionFn();
-            const end = performance.now();
-
-            // LOGGING: Performance check - also useful stat to know if people still have trouble with this
-            if ((end - start) > 100) {
-                logInfo(`Action Tracker | Slow Operation: ${combatantId} took ${Math.round(end - start)}ms`);
-            }
-        } catch (err) {
-            logError("Action Tracker | Queue Error:", err);
-        }
-    });
-
-    _queues.set(combatantId, newPromise);
-
-    // Drop the entry once it settles, but only if no later enqueueAction has replaced the head.
-    // Without this, the map accumulates one resolved Promise per combatant ever queued, growing
-    // unboundedly across long sessions.
-    newPromise.finally(() => {
-        if (_queues.get(combatantId) === newPromise) {
-            _queues.delete(combatantId);
-        }
-    });
-
-    return newPromise;
-}
-
-export async function waitForQueue(combatantId: string) {
-    const existingPromise = _queues.get(combatantId);
-    if (existingPromise) await existingPromise;
-}

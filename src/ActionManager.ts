@@ -7,9 +7,14 @@ import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
 import { ComplexActionFormatter } from "./complexActions/ComplexActionFormatter.ts";
 import { getCurrentMapStateFromLog } from "./mapTracker.ts";
 import { isCurrentUserActiveGM } from "./foundryCompat.ts";
-import { type ActionLogEntry, getEntryCost } from "./ActionLogTypes.ts";
+import { type ActionLogEntry, getEntryCost, isMoveAction } from "./ActionLogTypes.ts";
 import { DBManager } from "./DBManager.ts";
-import { ItemManager } from "./ItemManager.ts";
+import { ItemRefundService } from "./items/ItemRefundService.ts";
+import { MovementHistoryService } from "./MovementHistoryService.ts";
+import { AlertService } from "./chat/AlertService.ts";
+import { ChatMessageService } from "./chat/ChatMessageService.ts";
+import { SustainReminderService } from "./chat/SustainReminderService.ts";
+import { SocketSender } from "./sockets/SocketSender.ts";
 
 export class ActionManager {
     private static writeQueues = new Map<string, Promise<any>>();
@@ -95,6 +100,12 @@ export class ActionManager {
         return { entry: lastEntry, isSubAction: false };
     }
 
+    static getInterruptibleMoveId(combatant: CombatantPF2e): string | undefined {
+        const lastResult = this.getLastAction(combatant);
+        const state = lastResult?.entry.ComplexActionState;
+        return state ? ComplexActionEngine.getInterruptibleMoveId(state) : undefined;
+    }
+
     /**
      * Handle start of turn shenanigans, including resetting the previous round's actions and getting the
      * fresh list of actions to spend for this round
@@ -107,8 +118,7 @@ export class ActionManager {
         // Reset any captured movement history for this turn
         const tokenId = c.tokenId || c.token?.id;
         if (tokenId) {
-            const { MovementManager } = await import("./MovementManager.ts");
-            MovementManager.broadcastReset(tokenId);
+            MovementHistoryService.broadcastReset(tokenId);
         }
 
         // 1. Logic call to ActorManager, but the ActionManager does the filing
@@ -141,25 +151,23 @@ export class ActionManager {
             [`flags.${SCOPE}.lastOverspendAlert`]: 0
         });
 
-        const { ChatManager } = await import("./ChatManager.ts");
-        await ChatManager.checkSustainReminder(c);
+        await SustainReminderService.checkSustainReminder(c);
     }
 
     /**
      * Handle end of turn shenanigans, including decrement stunned.  Per RAW in PF2E - this should be done at the
      * beginning of the turn.  But done at the end for user's visual confirmation
      */
-    static async handleEndOfTurn(combatant: CombatantPF2e) {
+    static handleEndOfTurn(combatant: CombatantPF2e) {
         const actor = (combatant as any).actor;
         if (!actor) return;
 
         // Check for underspend to alert the player they had actions left
         const log = this.getActions(combatant);
-        await this.checkUnderSpend(combatant, log);
+        this.checkUnderSpend(combatant, log);
 
         // Reset all movement history for the next round to ensure a clean state
-        const { MovementManager } = await import("./MovementManager.ts");
-        MovementManager.broadcastReset();
+        MovementHistoryService.broadcastReset();
 
         // Stunned logic is removed from here because it's now handled at Start of Turn per RAW.
     }
@@ -171,14 +179,9 @@ export class ActionManager {
         const c = combatant as any;
 
         if (!isCurrentUserActiveGM()) {
-            const { SocketsManager } = await import("./SocketManager.ts");
-            return await SocketsManager.socket.executeAsGM("addAction", {
-                combatantId: (combatant as any as Combatant).id,
-                action
-            });
+            return await SocketSender.sendAddAction(c.id, action);
         }
 
-        const { MovementManager } = await import("./MovementManager.ts");
         const tokenId = c.tokenId || c.token?.id;
 
         if (action.type === 'system') {
@@ -217,10 +220,9 @@ export class ActionManager {
                 // Use toString() for a clean, dynamic label
                 openEntry.label = ComplexActionFormatter.toString(result.newState);
 
-                const { MovementManager } = await import("./MovementManager.ts");
                 // If this action completed the sequence and it wasn't a move, reset movement history
-                if (ComplexActionEngine.isComplete(result.newState) && !wasCompleteBeforeClaim && !MovementManager.isMoveAction(action.msgId)) {
-                    if (tokenId) MovementManager.resetCapturedHistory(tokenId);
+                if (ComplexActionEngine.isComplete(result.newState) && !wasCompleteBeforeClaim && !isMoveAction(action.msgId)) {
+                    if (tokenId) MovementHistoryService.resetCapturedHistory(tokenId);
                 }
 
                 const overrideCost = ComplexActionEngine.getOverrideCost(result.newState);
@@ -236,24 +238,20 @@ export class ActionManager {
                 openEntry.ComplexActionState = ComplexActionEngine.complete(openEntry.ComplexActionState, ComplexActionEngine.getAllChildActions(openEntry.ComplexActionState).reverse()[0].msgId);
                 openEntry.label = ComplexActionFormatter.toString(openEntry.ComplexActionState);
                 // Sequence completed/ejected, reset history
-                const { MovementManager } = await import("./MovementManager.ts");
-                if (tokenId) MovementManager.resetCapturedHistory(tokenId);
+                if (tokenId) MovementHistoryService.resetCapturedHistory(tokenId);
             } else if (this.getEntryCost(action, currentLog) > 0) {
                 // Sequence Broken
                 openEntry.ComplexActionState = ComplexActionEngine.complete(openEntry.ComplexActionState, action.msgId);
-                const { ChatManager } = await import("./ChatManager.ts");
-                await ChatManager.triggerAlert(c.actor, "Sequence Broken", `Cancelled ${openEntry.label}.`, 'whisperComplexAction');
+                AlertService.triggerAlert(c.actor, "Sequence Broken", `Cancelled ${openEntry.label}.`, 'whisperComplexAction');
                 // Sequence broken, reset history
-                const { MovementManager } = await import("./MovementManager.ts");
-                if (tokenId) MovementManager.resetCapturedHistory(tokenId);
+                if (tokenId) MovementHistoryService.resetCapturedHistory(tokenId);
             }
         }
 
         if (!action.ComplexActionState) {
-            const { MovementManager } = await import("./MovementManager.ts");
-            if (!MovementManager.isMoveAction(action.msgId)) {
+            if (!isMoveAction(action.msgId)) {
                 // Not a move and not starting a sequence, reset history
-                if (tokenId) MovementManager.broadcastReset(tokenId);
+                if (tokenId) MovementHistoryService.broadcastReset(tokenId);
             }
         }
 
@@ -269,12 +267,7 @@ export class ActionManager {
         const c = combatant as any;
 
         if (!isCurrentUserActiveGM()) {
-            const { SocketsManager } = await import("./SocketManager.ts");
-            return await SocketsManager.socket.executeAsGM("editAction", {
-                combatantId: (combatant as any as Combatant).id,
-                msgId,
-                updates
-            });
+            return await SocketSender.sendEditAction(c.id, msgId, updates);
         }
 
         const currentLog = [...DBManager.getLog(combatant)];
@@ -306,8 +299,7 @@ export class ActionManager {
                 // Promote the edited action to the top-level log
                 currentLog.push({ ...subAction, ...updates });
 
-                const { ChatManager } = await import("./ChatManager.ts");
-                await ChatManager.triggerAlert(
+                AlertService.triggerAlert(
                     c.actor,
                     "Sequence Broken",
                     `Action limits exceeded for ${parentEntry.slug}. Item separated.`,
@@ -371,32 +363,25 @@ export class ActionManager {
         }
 
         // 4. Final Sync
-        const { MovementManager } = await import("./MovementManager.ts");
-        await DBManager.updateLogs(combatant, currentLog, MovementManager.isMoveAction(msgId));
+        await DBManager.updateLogs(combatant, currentLog, isMoveAction(msgId));
     }
 
     /**
      * Remove an existing ActionLogEntry from the action log for the current turn
      */
     static async removeAction(combatant: CombatantPF2e, msgId: string, isRecursive: boolean = false) {
+        const c = combatant as any;
         // Always reset movement history when an action is removed (Undo)
-        const tokenId = (combatant as any).tokenId || (combatant as any).token?.id;
-        const { MovementManager } = await import("./MovementManager.ts");
-        if (tokenId) MovementManager.broadcastReset(tokenId);
+        const tokenId = c.tokenId || c.token?.id;
+        if (tokenId) MovementHistoryService.broadcastReset(tokenId);
 
         // If this is a player, we must delegate the authoritative removal to the GM
         if (!isCurrentUserActiveGM()) {
-            const { SocketsManager } = await import("./SocketManager.ts");
-            return await SocketsManager.socket.executeAsGM("removeAction", {
-                combatantId: (combatant as any as Combatant).id,
-                msgId,
-                isRecursive
-            });
+            return await SocketSender.sendRemoveAction(c.id, msgId, isRecursive);
         }
 
         try {
             const entry = this.getActionById(combatant, msgId);
-            const { ChatManager } = await import("./ChatManager.ts");
 
             // 1. Update the History Log
             const currentLog = DBManager.getLog(combatant);
@@ -434,7 +419,7 @@ export class ActionManager {
 
             if (!entry) {
                 // If no entry exists in the log, just ensure the message is gone
-                await ChatManager.deleteMessage(msgId);
+                await ChatMessageService.deleteMessage(msgId);
                 return;
             }
 
@@ -548,14 +533,12 @@ export class ActionManager {
 
             // Failsafe cleanup of any remaining child messages
             if (failsafeIds.length > 0) {
-                const { ChatManager } = await import("./ChatManager.ts");
-                await Promise.allSettled(failsafeIds.map(id => ChatManager.deleteMessage(id)));
+                await ChatMessageService.deleteMessages(failsafeIds);
             }
 
             // Cleanup combined damage message if exists
             if (entry.ComplexActionState.combinedDamageMessageId) {
-                const { ChatManager } = await import("./ChatManager.ts");
-                await ChatManager.deleteMessage(entry.ComplexActionState.combinedDamageMessageId);
+                await ChatMessageService.deleteMessage(entry.ComplexActionState.combinedDamageMessageId);
             }
         }
 
@@ -571,8 +554,7 @@ export class ActionManager {
                 if (!appliedDamage.isReverted) {
                     await ActorManager.undoDamage(app.targetUuid, appliedDamage, app.msgId);
                 }
-                const { ChatManager } = await import("./ChatManager.ts");
-                await ChatManager.deleteMessage(app.msgId);
+                await ChatMessageService.deleteMessage(app.msgId);
             } else {
                 logWarn(`ActionManager | Message flags or targetUuid missing. Has appliedDamage: ${!!appliedDamage} | Has targetUuid: ${!!app.targetUuid}`);
             }
@@ -585,7 +567,7 @@ export class ActionManager {
 
         // 4. Refund Item Usage
         if (entry.itemUsage) {
-            await ItemManager.refundItemUsage(entry.itemUsage.uuid, entry.itemUsage);
+            await ItemRefundService.refundItemUsage(entry.itemUsage.uuid, entry.itemUsage);
         }
 
         // 5. Remove Created Effects
@@ -610,13 +592,12 @@ export class ActionManager {
         }
 
         // 6. Delete Linked Messages (Rolls etc)
-        const { ChatManager } = await import("./ChatManager.ts");
         const entryLinks = entry.linkedMessages || [];
         if (entryLinks.length > 0) {
             const messageIds = entryLinks
                 .filter(m => m.type !== 'applied-damage')
                 .map(m => m.msgId);
-            await Promise.allSettled(messageIds.map(id => ChatManager.deleteMessage(id)));
+            await ChatMessageService.deleteMessages(messageIds);
         }
 
         // Revert choice on reminder message if exists
@@ -630,16 +611,13 @@ export class ActionManager {
         }
 
         // 7. Delete the primary message
-        await ChatManager.deleteMessage(entry.msgId);
+        await ChatMessageService.deleteMessage(entry.msgId);
     }
 
     static async completeComplexAction(combatant: CombatantPF2e, action: ActionLogEntry) {
+        const c = combatant as any;
         if (!isCurrentUserActiveGM()) {
-            const { SocketsManager } = await import("./SocketManager.ts");
-            return await SocketsManager.socket.executeAsGM("completeComplexAction", {
-                combatantId: (combatant as any as Combatant).id,
-                action
-            });
+            return await SocketSender.sendCompleteComplexAction(c.id, action);
         }
 
         const currentLog = [...DBManager.getLog(combatant)];
@@ -763,7 +741,7 @@ export class ActionManager {
     /**
      * Determine if there are any remaining actions for a user this round.
      */
-    private static async checkUnderSpend(combatant: CombatantPF2e, log: readonly ActionLogEntry[]) {
+    private static checkUnderSpend(combatant: CombatantPF2e, log: readonly ActionLogEntry[]) {
         const c = combatant as any;
         const spent = log.filter(e => e.type === 'action' || e.type === 'system').reduce((acc, e) => acc + this.getEntryCost(e, log), 0);
         const actor = c.actor as ActorPF2e | undefined;
@@ -772,8 +750,7 @@ export class ActionManager {
         const max = ActorManager.getMaxActions(combatant);
         if (spent < max) {
             const diff = max - spent;
-            const { ChatManager } = await import("./ChatManager.ts");
-            await ChatManager.triggerAlert(actor, "Economy", `**${c.name}** ended turn with **${diff}** actions/bonus actions remaining.`, 'whisperUnderspend');
+            AlertService.triggerAlert(actor, "Economy", `**${c.name}** ended turn with **${diff}** actions/bonus actions remaining.`, 'whisperUnderspend');
         }
     }
 

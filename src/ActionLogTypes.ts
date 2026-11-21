@@ -112,3 +112,17 @@ export function getForceBarrageInfo(entry: ActionLogEntry, log?: readonly Action
 
     return `${missiles} missiles cast${remaining > 0 ? ` (${remaining} more space at this cost)` : ''}`;
 }
+
+export function isMoveAction(msgId: string): boolean {
+    if (!msgId) return false;
+    const lower = msgId.toLowerCase();
+    return lower.startsWith('move-') ||
+        lower.includes('-stride') ||
+        lower.includes('-step') ||
+        lower.includes('-fly') ||
+        lower.includes('-walk') ||
+        lower.includes('-burrow') ||
+        lower.includes('-climb') ||
+        lower.includes('-swim');
+}
+
