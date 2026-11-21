@@ -194,11 +194,16 @@ export class ActionManager {
         const currentLog = [...DBManager.getLog(combatant)];
         const incomingSlug = action.slug || (action.type === 'action' ? 'strike' : action.type);
 
+        logInfo(
+            `ActionManager | addAction for "${c.name}" | label: "${action.label}", slug: "${incomingSlug}", category: "${action.category}", type: "${action.type}", cost: ${typeof action.cost === "function" ? "<dynamic>" : action.cost}, msgId: ${action.msgId}`
+        );
+
         // 0. Prepare potential new sequence for the incoming action
         const newSequence = ComplexActionEngine.maybeStart(incomingSlug, action.msgId, (combatant as unknown as Combatant).token);
         if (newSequence) {
             action.ComplexActionState = newSequence;
             action.label = ComplexActionFormatter.toString(newSequence);
+            logInfo(`ActionManager | Started new ComplexActionState for "${incomingSlug}" (parentMessageId: ${action.msgId})`);
         }
 
         // 1. Check for OPEN sequences
@@ -206,6 +211,10 @@ export class ActionManager {
 
         if (openEntry && openEntry.ComplexActionState) {
             const wasCompleteBeforeClaim = ComplexActionEngine.isComplete(openEntry.ComplexActionState);
+
+            logInfo(
+                `ActionManager | Open ComplexAction "${openEntry.ComplexActionState.activitySlug}" found on "${c.name}". Evaluating incoming action "${incomingSlug}" (category: "${action.category}", cost: ${typeof action.cost === "function" ? "<dynamic>" : action.cost})...`
+            );
 
             const result = ComplexActionEngine.evaluate(openEntry.ComplexActionState!, {
                 slug: incomingSlug,
@@ -220,6 +229,10 @@ export class ActionManager {
                 // Use toString() for a clean, dynamic label
                 openEntry.label = ComplexActionFormatter.toString(result.newState);
 
+                logInfo(
+                    `ActionManager | Incoming action "${incomingSlug}" (${action.msgId}) CLAIMED by open ComplexAction "${openEntry.ComplexActionState.activitySlug}". Complete: ${ComplexActionEngine.isComplete(result.newState)}`
+                );
+
                 // If this action completed the sequence and it wasn't a move, reset movement history
                 if (ComplexActionEngine.isComplete(result.newState) && !wasCompleteBeforeClaim && !isMoveAction(action.msgId)) {
                     if (tokenId) MovementHistoryService.resetCapturedHistory(tokenId);
@@ -229,22 +242,33 @@ export class ActionManager {
 
                 // Only update the entry cost if an override was explicitly found
                 if (overrideCost !== undefined) {
+                    logInfo(`ActionManager | Applying overrideParentCost=${overrideCost} to "${openEntry.ComplexActionState.activitySlug}"`);
                     openEntry.cost = overrideCost;
                 }
 
                 await DBManager.updateLogs(combatant, currentLog, false);
                 return;
             } else if (ComplexActionEngine.canComplete(openEntry.ComplexActionState)) {
+                logInfo(
+                    `ActionManager | Incoming action "${incomingSlug}" NOT claimed by "${openEntry.ComplexActionState.activitySlug}", but open activity is satisfied (canComplete=true). Auto-completing "${openEntry.ComplexActionState.activitySlug}" and logging "${incomingSlug}" separately.`
+                );
                 openEntry.ComplexActionState = ComplexActionEngine.complete(openEntry.ComplexActionState, ComplexActionEngine.getAllChildActions(openEntry.ComplexActionState).reverse()[0].msgId);
                 openEntry.label = ComplexActionFormatter.toString(openEntry.ComplexActionState);
                 // Sequence completed/ejected, reset history
                 if (tokenId) MovementHistoryService.resetCapturedHistory(tokenId);
             } else if (this.getEntryCost(action, currentLog) > 0) {
                 // Sequence Broken
+                logInfo(
+                    `ActionManager | Sequence Broken! Incoming action "${incomingSlug}" (cost > 0) was NOT claimed by "${openEntry.ComplexActionState.activitySlug}" and activity is not yet satisfied.`
+                );
                 openEntry.ComplexActionState = ComplexActionEngine.complete(openEntry.ComplexActionState, action.msgId);
                 AlertService.triggerAlert(c.actor, "Sequence Broken", `Cancelled ${openEntry.label}.`, 'whisperComplexAction');
                 // Sequence broken, reset history
                 if (tokenId) MovementHistoryService.resetCapturedHistory(tokenId);
+            } else {
+                logInfo(
+                    `ActionManager | Incoming action "${incomingSlug}" (cost 0) was NOT claimed by "${openEntry.ComplexActionState.activitySlug}", keeping sequence open.`
+                );
             }
         }
 

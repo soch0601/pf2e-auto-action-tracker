@@ -588,6 +588,13 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         ]
     },
     {
+        name: 'Exploit Opening',
+        slug: 'exploit-opening',
+        childActions: [
+            { type: 'ACTION', properties: { type: 'attack', subtype: 'strike' } }
+        ]
+    },
+    {
         name: 'Extract Vow of Nonviolence',
         slug: 'extract-vow-of-nonviolence',
         childActions: [
@@ -978,6 +985,22 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         ]
     },
     {
+        name: 'Interweave Dispel',
+        slug: 'interweave-dispel',
+        childActions: [
+            {
+                type: 'GROUP',
+                value: [
+                    { type: 'ACTION', properties: { type: 'spell', subtype: 'cast-a-spell', minCost: 1, maxCost: 1, overrideParentCost: 2 } },
+                    { type: 'OPERATOR', value: 'XOR' },
+                    { type: 'ACTION', properties: { type: 'spell', subtype: 'cast-a-spell', minCost: 2, maxCost: 2, overrideParentCost: 3 } }
+                ]
+            },
+            { type: 'OPERATOR', value: 'THEN' },
+            { type: 'ACTION', properties: { type: 'spell', subtype: 'dispel-magic', minOccurrences: 0, maxOccurrences: 1 } }
+        ]
+    },
+    {
         name: 'Into the Fray',
         slug: 'into-the-fray',
         childActions: [
@@ -1314,6 +1337,13 @@ export const SPECIAL_ACTIVITIES: SpecialActivity[] = [
         slug: 'pierce-the-eye',
         childActions: [
             { type: 'ACTION', properties: { type: 'attack', subtype: 'strike' } }
+        ]
+    },
+    {
+        name: 'Pistol Twirl',
+        slug: 'pistol-twirl',
+        childActions: [
+            { type: 'ACTION', properties: { type: 'skill', subtype: 'feint' } }
         ]
     },
     {

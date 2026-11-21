@@ -1,4 +1,5 @@
 import type { IActionDetector } from "./IActionDetector.ts";
+import { logInfo } from "../logger.ts";
 
 export class HardIgnoreDetector {
 
@@ -15,7 +16,10 @@ export class HardIgnoreDetector {
             "damage-roll"
         ];
 
-        if (contextType && ignoredContexts.includes(contextType)) return true;
+        if (contextType && ignoredContexts.includes(contextType)) {
+            logInfo(`HardIgnoreDetector | Breaking on message ${message.id}: context.type="${contextType}" is in ignoredContexts`);
+            return true;
+        }
 
         const pf2e = message.flags?.pf2e;
         const content = message.content || "";
@@ -39,6 +43,7 @@ export class HardIgnoreDetector {
             // If the item has a 'self-effect', it will produce a 'Use' message. 
             // We ignore the link and wait for the Use.
             if (item?.system?.selfEffect) {
+                logInfo(`HardIgnoreDetector | Breaking on message ${message.id}: item card "${item?.name}" (${pf2e.origin.uuid}) has selfEffect, waiting for actual Use message`);
                 return true;
             }
         }

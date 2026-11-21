@@ -1,6 +1,7 @@
 import type { IActionDetector } from "./IActionDetector.ts";
 import { getCostFromMsgFlavor, getIsReaction, getLabelFromMsgFlavor, getSlugFromMsgFlavor } from "./detectorUtilities.ts";
 import { SCOPE } from "../globals.ts";
+import { logInfo } from "../logger.ts";
 
 export class GenericActionDetector {
 
@@ -17,7 +18,10 @@ export class GenericActionDetector {
         // This prevents "Link to Chat" from counting as an action just because the description has a glyph.
         const origin = message.flags?.pf2e?.origin;
         const isItemCard = !!(origin || message.item || message.flags?.pf2e?.item || origin?.type || origin?.uuid);
-        if (isItemCard && !isExplicitUse) return false;
+        if (isItemCard && !isExplicitUse) {
+            logInfo(`GenericActionDetector | Skipping item card "${message.item?.name || origin?.uuid || message.id}" because isExplicitUse=false (likely link-to-chat or missing use intent)`);
+            return false;
+        }
 
         // 3. Otherwise, fall back to glyph detection
         if ((message.flavor || "").includes('class="action-glyph"')) return true;

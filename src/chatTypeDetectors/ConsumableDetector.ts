@@ -1,6 +1,7 @@
 import type { IActionDetector } from './IActionDetector.ts';
 import { SCOPE } from '../globals.ts';
 import { getLabelFromMsgFlavor, getSlugFromMsgFlavor } from './detectorUtilities.ts';
+import { logInfo } from '../logger.ts';
 
 export class ConsumableDetector {
 
@@ -18,6 +19,7 @@ export class ConsumableDetector {
         // If it's a consumable but we didn't explicitly trigger the 'use' flag, 
         // it's just a chat card (description), not an action. Stop here.
         if (originType === 'consumable' && !isExplicitUse) {
+            logInfo(`ConsumableDetector | Breaking on message ${message.id}: consumable "${message.item?.name}" posted without isExplicitUse=true (link-to-chat)`);
             return true;
         }
 

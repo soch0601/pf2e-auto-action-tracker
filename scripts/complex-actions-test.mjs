@@ -306,3 +306,107 @@ assert.equal(sneakLeaf.satisfied, true, "Sneak leaf should be marked satisfied")
 assert.equal(sneakLeaf.childActions[0].slug, "sneak", "Child action slug should be converted to sneak");
 assert.equal(sneakLeaf.childActions[0].category, "skill", "Child action category should be converted to skill");
 assert.equal(ComplexActionEngine.isComplete(infState), true, "Infiltrator's Reload should be complete");
+
+
+// --- TEST 13: Exploit Opening (Strike) ---
+let exploitOpeningState = ComplexActionEngine.maybeStart("exploit-opening", "msg-eo-parent", null);
+assert.ok(exploitOpeningState, "Failed to start exploit-opening");
+assert.equal(ComplexActionFormatter.toString(exploitOpeningState), "Exploit Opening - Waiting for:\n• Strike");
+
+let eoRes = ComplexActionEngine.evaluate(
+    exploitOpeningState,
+    { slug: "strike", action: { msgId: "msg-eo-strike", label: "Strike", cost: 1, category: "attack" }, cost: 1, type: "attack" },
+    combatantMock
+);
+assert.equal(eoRes.claimed, true);
+assert.equal(ComplexActionEngine.isComplete(eoRes.newState), true);
+assert.equal(ComplexActionFormatter.toString(eoRes.newState), "Exploit Opening - Complete");
+
+
+// --- TEST 14: Pistol Twirl (Feint nested complex action -> Deception delegation) ---
+let pistolTwirlState = ComplexActionEngine.maybeStart("pistol-twirl", "msg-pt-parent", null);
+assert.ok(pistolTwirlState, "Failed to start pistol-twirl");
+assert.equal(ComplexActionFormatter.toString(pistolTwirlState), "Pistol Twirl - Waiting for:\n• Feint");
+
+// 1. Post the Feint action card (which itself starts a nested Feint ComplexActionState waiting for Deception)
+const feintChildState = ComplexActionEngine.maybeStart("feint", "msg-pt-feint", null);
+assert.ok(feintChildState, "Failed to start nested feint");
+const feintActionEntry = {
+    msgId: "msg-pt-feint",
+    label: ComplexActionFormatter.toString(feintChildState),
+    cost: 1,
+    category: "action",
+    ComplexActionState: feintChildState
+};
+
+let ptRes = ComplexActionEngine.evaluate(
+    pistolTwirlState,
+    { slug: "feint", action: feintActionEntry, cost: 1, type: "action" },
+    combatantMock
+);
+assert.equal(ptRes.claimed, true, "Pistol Twirl should claim Feint");
+assert.equal(ComplexActionEngine.isComplete(ptRes.newState), false, "Pistol Twirl should NOT be complete before Deception roll");
+assert.equal(ComplexActionEngine.canComplete(ptRes.newState), false, "Pistol Twirl should NOT be completable before Deception roll");
+assert.equal(
+    ComplexActionFormatter.toString(ptRes.newState),
+    "Pistol Twirl - Waiting for:\n• Feint - Waiting for:\n• Deception"
+);
+
+// 2. Roll the Deception check (delegated to the nested Feint ComplexActionState)
+let ptDeceptionRes = ComplexActionEngine.evaluate(
+    ptRes.newState,
+    { slug: "deception", action: { msgId: "msg-pt-deception", label: "Deception", cost: 1, category: "skill" }, cost: 1, type: "skill" },
+    combatantMock
+);
+assert.equal(ptDeceptionRes.claimed, true, "Deception roll should be claimed via delegation to Feint");
+assert.equal(ComplexActionEngine.isComplete(ptDeceptionRes.newState), true, "Pistol Twirl should now be complete");
+assert.equal(ComplexActionFormatter.toString(ptDeceptionRes.newState), "Pistol Twirl - Complete");
+
+
+// --- TEST 15: Interweave Dispel (2-action spell -> optional Dispel Magic, cost override 3) ---
+let interweaveState = ComplexActionEngine.maybeStart("interweave-dispel", "msg-id-parent", null);
+assert.ok(interweaveState, "Failed to start interweave-dispel");
+assert.equal(
+    ComplexActionFormatter.toString(interweaveState),
+    "Interweave Dispel - Waiting for:\n• Cast A Spell\n&nbsp;&nbsp;&nbsp;&nbsp;<small><i>then</i></small>\n• (Optional) Dispel Magic"
+);
+
+// 1. Cast a 2-action single-target spell (e.g., Telekinetic Projectile)
+let idRes = ComplexActionEngine.evaluate(
+    interweaveState,
+    { slug: "telekinetic-projectile", action: { msgId: "msg-id-spell1", label: "Telekinetic Projectile", cost: 2, category: "spell" }, cost: 2, type: "spell" },
+    combatantMock
+);
+assert.equal(idRes.claimed, true);
+assert.equal(ComplexActionEngine.getOverrideCost(idRes.newState), 3);
+assert.equal(ComplexActionEngine.canComplete(idRes.newState), true);
+assert.equal(ComplexActionEngine.isComplete(idRes.newState), false);
+assert.equal(
+    ComplexActionFormatter.toString(idRes.newState),
+    "Interweave Dispel - Waiting for:\n• (Optional) Dispel Magic"
+);
+
+// 2. Cast Dispel Magic
+idRes = ComplexActionEngine.evaluate(
+    idRes.newState,
+    { slug: "dispel-magic", action: { msgId: "msg-id-dispel", label: "Dispel Magic", cost: 2, category: "spell" }, cost: 2, type: "spell" },
+    combatantMock
+);
+assert.equal(idRes.claimed, true);
+assert.equal(ComplexActionEngine.getOverrideCost(idRes.newState), 3);
+assert.equal(ComplexActionEngine.isComplete(idRes.newState), true);
+assert.equal(ComplexActionFormatter.toString(idRes.newState), "Interweave Dispel - Complete");
+
+
+// --- TEST 16: Interweave Dispel (1-action spell -> cost override 2) ---
+let interweave1State = ComplexActionEngine.maybeStart("interweave-dispel", "msg-id1-parent", null);
+let id1Res = ComplexActionEngine.evaluate(
+    interweave1State,
+    { slug: "force-bolt", action: { msgId: "msg-id1-spell", label: "Force Bolt", cost: 1, category: "spell" }, cost: 1, type: "spell" },
+    combatantMock
+);
+assert.equal(id1Res.claimed, true);
+assert.equal(ComplexActionEngine.getOverrideCost(id1Res.newState), 2);
+assert.equal(ComplexActionEngine.canComplete(id1Res.newState), true);
+
+

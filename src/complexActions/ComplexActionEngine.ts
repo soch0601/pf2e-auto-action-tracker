@@ -3,7 +3,8 @@ import type { ActiveActivityState, LeafState, OperatorNode, ActionNode, GroupNod
 import { type ActionLogEntry, getEntryCost } from "../ActionLogTypes.ts";
 import { MovementHistoryService } from "../MovementHistoryService.ts";
 import type { CombatantPF2e, ActorPF2e } from "module-helpers";
-import { ActorManager } from "../ActorManager.ts"
+import { ActorManager } from "../ActorManager.ts";
+import { logInfo } from "../logger.ts";
 
 export type ComplexActionFormatCallback = (state: ActiveActivityState) => string;
 
@@ -76,10 +77,10 @@ export class ComplexActionEngine {
         const claimResult = this._tryClaimGroup(definition.childActions, newState, incoming, [], combatant);
 
         if (claimResult.claimed) {
-            console.log("ComplexActionEngine: Action claimed. Checking if we can complete...", newState);
+            logInfo(`ComplexActionEngine | Action "${incoming.slug}" claimed by "${state.activitySlug}". Checking completion...`, newState);
             const isSatisfied = this._isRangeSatisfied(definition.childActions, newState);
             const isClosed = this._isRangeClosed(definition.childActions, newState);
-            console.log(`ComplexActionEngine: isSatisfied: ${isSatisfied}, isClosed: ${isClosed}`);
+            logInfo(`ComplexActionEngine | "${state.activitySlug}" isSatisfied: ${isSatisfied}, isClosed: ${isClosed}`);
 
             if (isSatisfied && isClosed) {
                 newState.completedBy = incoming.action.msgId;
@@ -94,6 +95,7 @@ export class ComplexActionEngine {
             return { newState, claimed: true };
         }
 
+        logInfo(`ComplexActionEngine | Action "${incoming.slug}" (type: ${incoming.type}) was NOT claimed by "${state.activitySlug}".`);
         return { newState: state, claimed: false };
     }
 
@@ -409,7 +411,7 @@ export class ComplexActionEngine {
                     if (childAction.ComplexActionState && !childAction.ComplexActionState.completedBy) {
                         const result = ComplexActionEngine.evaluate(childAction.ComplexActionState, incoming, combatant);
                         if (result.claimed) {
-                            console.log("ComplexActionEngine: Delegated action claim to child ComplexActionState", childAction.ComplexActionState.activitySlug);
+                            logInfo("ComplexActionEngine | Delegated action claim to child ComplexActionState", childAction.ComplexActionState.activitySlug);
                             leaf.childActions[j].ComplexActionState = result.newState;
                             leaf.childActions[j].label = ComplexActionEngine.formatState(result.newState);
 
@@ -420,7 +422,13 @@ export class ComplexActionEngine {
                                 state.orderedActivityChildActions[orderedIndex].label = leaf.childActions[j].label;
                             }
 
-                            // Do not mark the leaf closed here, just return true.
+                            const maxOcc = leaf.maxOccurrences ?? 1;
+                            const canInterrupt = node.properties?.modifiers?.includes('allowInterruption') ?? false;
+                            const allChildrenComplete = leaf.childActions.every(a => !a.ComplexActionState || !!a.ComplexActionState.completedBy);
+                            if (allChildrenComplete && ((leaf.childActions.length === maxOcc && !canInterrupt) || (leaf.childActions.length > maxOcc))) {
+                                leaf.isClosed = true;
+                            }
+
                             return { claimed: true, delegated: true };
                         }
                     }
@@ -525,12 +533,18 @@ export class ComplexActionEngine {
 
             // Fuzzy Match: Allow 'skill' and 'action' types to be interchangeable 
             if (leaf.type === 'skill' || leaf.type === 'action') {
-                if (incoming.type !== 'skill' && incoming.type !== 'action') return { claimed: false, delegated: false };
+                if (incoming.type !== 'skill' && incoming.type !== 'action') {
+                    logInfo(`ComplexActionEngine | Leaf [${id}] (${leaf.type}:${leaf.subtype || "*"}) rejected incoming "${incoming.slug}" due to type mismatch (incoming.type="${incoming.type}")`);
+                    return { claimed: false, delegated: false };
+                }
             } else if (leaf.type !== incoming.type) {
+                logInfo(`ComplexActionEngine | Leaf [${id}] (${leaf.type}:${leaf.subtype || "*"}) rejected incoming "${incoming.slug}" due to type mismatch (incoming.type="${incoming.type}")`);
                 return { claimed: false, delegated: false };
             }
 
-            const subtypeMatch = !leaf.subtype || leaf.subtype === incoming.slug;
+            const subtypeMatch = !leaf.subtype
+                || leaf.subtype === incoming.slug
+                || (leaf.type === 'spell' && leaf.subtype === 'cast-a-spell' && incoming.type === 'spell');
 
             if (subtypeMatch) {
                 const incomingCostValue = typeof incoming.cost === 'function' ? incoming.cost(incoming.action) : (incoming.cost || 1);
@@ -543,13 +557,20 @@ export class ComplexActionEngine {
                     const maxOcc = leaf.maxOccurrences ?? 1;
                     leaf.satisfied = leaf.childActions.length >= minOcc;
 
-                    // Auto-close if we hit the limit and cannot be interrupted further
-                    if ((leaf.childActions.length === maxOcc && !canInterrupt) || (leaf.childActions.length > maxOcc)) {
+                    const hasIncompleteChild = incoming.action.ComplexActionState && !incoming.action.ComplexActionState.completedBy;
+
+                    // Auto-close if we hit the limit, cannot be interrupted further, and the claimed action doesn't have an open child sequence
+                    if (!hasIncompleteChild && ((leaf.childActions.length === maxOcc && !canInterrupt) || (leaf.childActions.length > maxOcc))) {
                         leaf.isClosed = true;
                     }
 
+                    logInfo(`ComplexActionEngine | Leaf [${id}] (${leaf.type}:${leaf.subtype || "*"}) claimed incoming "${incoming.slug}" (cost: ${incomingCostValue})`);
                     return { claimed: true, delegated: false };
+                } else {
+                    logInfo(`ComplexActionEngine | Leaf [${id}] (${leaf.type}:${leaf.subtype || "*"}) rejected incoming "${incoming.slug}": cost=${incomingCostValue} (expected ${leaf.minCost ?? 1}..${leaf.maxCost ?? 1000}) or occurrences=${leaf.childActions.length}/${leaf.maxOccurrences ?? 1}`);
                 }
+            } else {
+                logInfo(`ComplexActionEngine | Leaf [${id}] (${leaf.type}:${leaf.subtype || "*"}) rejected incoming "${incoming.slug}" due to subtype mismatch`);
             }
         }
 
@@ -615,8 +636,9 @@ export class ComplexActionEngine {
         if (node.type === 'ACTION') {
             const id = this.generateId(...path);
             const leaf = state.leaves[id];
-            // It's closed if the leaf says it is, OR if it's satisfied and there is no manual finish
-            return leaf?.isClosed || false;
+            if (!leaf) return false;
+            const allChildrenComplete = leaf.childActions.every(a => !a.ComplexActionState || !!a.ComplexActionState.completedBy);
+            return !!leaf.isClosed && allChildrenComplete;
         }
 
         if (node.type === 'GROUP') {
@@ -628,8 +650,6 @@ export class ComplexActionEngine {
             const results = childrenWithIndices.map(child =>
                 this.nodeIsClosed(child.node, state, [...path, child.index])
             );
-
-            console.log('in _nodeIsClosed - results: ', results)
 
             // A group is only fully closed if all of its branches are closed (either naturally or force-closed).
             // This applies to ALL operators (AND, OR, XOR).
@@ -695,7 +715,8 @@ export class ComplexActionEngine {
         for (const leaf of Object.values(state.leaves)) {
             const maxOcc = leaf.maxOccurrences ?? 1;
             const canInterrupt = leaf.modifiers?.includes('allowInterruption');
-            if ((leaf.childActions.length === maxOcc && !canInterrupt) || leaf.childActions.length > maxOcc) {
+            const allChildrenComplete = leaf.childActions.every(a => !a.ComplexActionState || !!a.ComplexActionState.completedBy);
+            if (allChildrenComplete && ((leaf.childActions.length === maxOcc && !canInterrupt) || leaf.childActions.length > maxOcc)) {
                 leaf.isClosed = true;
             } else {
                 leaf.isClosed = false;
