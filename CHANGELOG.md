@@ -2,6 +2,14 @@
 
 All notable changes to **PF2E Automated Action Tracker** are documented in this file.
 
+## [v0.20.1] - 2026-11-21
+bump package.json (#88)
+fix/86: Add more complex action support + debugging + nested child action display on hover (#87)
+
+- Add support for more complex actions (Exploit Opening, Interweave Dispel, Pistol Twirl)
+- Add support for nested child complex actions properly displaying on hover
+- Add more verbose debug mode logging
+
 ## [v0.20.0] - 2026-11-21
 feat/84: Address tech debt (#85)
 
