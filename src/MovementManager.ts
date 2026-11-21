@@ -1,66 +1,32 @@
 import type { ActorPF2e, CombatantPF2e } from "module-helpers";
 import type { ActionLogEntry } from "./ActionLogTypes.ts";
+import { isMoveAction } from "./ActionLogTypes.ts";
 import { ActorManager } from "./ActorManager.ts";
-import { ComplexActionEngine } from "./complexActions/ComplexActionEngine.ts";
+import { ActionManager } from "./ActionManager.ts";
 import { logError } from "./logger.ts"
 import { GlobalConfig } from "./globals.ts";
 import { isCurrentUserActiveGM } from "./foundryCompat.ts";
+import { SocketSender } from "./sockets/SocketSender.ts";
+import { AlertService } from "./chat/AlertService.ts";
+
+import { MovementHistoryService } from "./MovementHistoryService.ts";
 
 const MOVEMENT_FLAG = "movementHistorySnapshot";
 
 export class MovementManager {
-
-    // Synchronous local storage for history length to prevent race conditions
-    private static _historyLengths = new Map<string, number>();
-    private static _capturedHistory = new Map<string, any[]>();
-    // Tracks the distance covered in the current movement interaction to calculate deltas
-    private static _lastInteractionDistance = new Map<string, number>();
-    private static _lastCoords = new Map<string, any[]>();
-
-    static async broadcastReset(tokenId?: string) {
-        const { SocketsManager } = await import("./SocketManager.ts");
-        if (!SocketsManager.socket) return;
-        SocketsManager.socket.executeForEveryone("resetMovementHistory", { tokenId });
-    }
-
-    /**
-     * Resets the manual history capture for a token.
-     */
-    static resetCapturedHistory(tokenId?: string) {
-        if (tokenId) {
-            MovementManager._capturedHistory.delete(tokenId);
-            MovementManager._lastInteractionDistance.delete(tokenId);
-            MovementManager._historyLengths.delete(tokenId);
-            MovementManager._lastCoords.delete(tokenId);
-        } else {
-            MovementManager._capturedHistory.clear();
-            MovementManager._lastInteractionDistance.clear();
-            MovementManager._historyLengths.clear();
-            MovementManager._lastCoords.clear();
-        }
-    }
-
-    /**
-     * Retrieves the manual history capture for a token.
-     */
-    static getCapturedHistory(tokenId: string) {
-        return MovementManager._capturedHistory.get(tokenId);
-    }
-
-
     static async handlePreUpdateToken(tokenDoc: any, update: any, options: any) {
         if (!GlobalConfig.noHistoryConflict) return;
 
         if ("x" in update || "y" in update) {
             const tokenId = tokenDoc.id;
-            let captured = MovementManager._capturedHistory.get(tokenId) || [];
+            let captured = MovementHistoryService.getCapturedHistory(tokenId) || [];
 
             // If this is the VERY first capture for this token, add the start point
             if (captured.length === 0) {
                 captured.push({ x: tokenDoc.x, y: tokenDoc.y, elevation: tokenDoc.elevation ?? 0 });
             }
 
-            MovementManager._capturedHistory.set(tokenId, captured);
+            MovementHistoryService.setCapturedHistory(tokenId, captured);
         }
     }
 
@@ -72,7 +38,7 @@ export class MovementManager {
         const tokenId = tokenDoc.id;
 
         let history: any[] = [];
-        const captured = MovementManager._capturedHistory.get(tokenId);
+        const captured = MovementHistoryService.getCapturedHistory(tokenId);
 
         if (GlobalConfig.noHistoryConflict) {
             const endX = update.x !== undefined ? update.x : tokenDoc.x;
@@ -118,28 +84,6 @@ export class MovementManager {
         return distance;
     }
 
-    static measurePath(actor: any, token: any, path: any[], movementMode: string) {
-        const { distance } = (canvas.grid as any).measurePath(path, { token });
-        const mode = movementMode || "stride";
-        const activeSpeed = ActorManager.getActiveSpeed(actor, mode) || 30;
-        const cost = Math.ceil(distance / activeSpeed);
-        const isDifficult = this.checkDifficultTerrain(token, path);
-        const label = this.getMovementLabel(distance, cost, mode, isDifficult);
-
-        return { distance, cost, isDifficult, label };
-    }
-
-    static getPathData(actor: ActorPF2e, tokenDoc: any, coordList: any[], mode: string) {
-        const path = coordList.map(p => ({ x: p.x, y: p.y }));
-        const { distance } = (canvas.grid as any).measurePath(path, { token: tokenDoc.object });
-        const activeSpeed = ActorManager.getActiveSpeed(actor, mode) || 30;
-        const cost = Math.ceil(distance / activeSpeed);
-        const isDifficult = this.checkDifficultTerrain(tokenDoc.object, coordList);
-        const label = this.getMovementLabel(distance, cost, mode, isDifficult);
-
-        return { distance, cost, isDifficult, label };
-    }
-
     /**
       * Handles movements for a token.  Will use the PF2E rules class to properly measure the distance based on the coordinates
       * provided by Foundry, and find the appropriate number of actions needed to move that distance
@@ -157,7 +101,7 @@ export class MovementManager {
         if (!c?.id || !combatant) return;
 
         const coordList = providedCoordList ?? tokenDoc._movementHistory;
-        const lastLength = MovementManager._historyLengths.get(tokenDoc.id) || 0;
+        const lastLength = MovementHistoryService.getHistoryLength(tokenDoc.id);
 
         // If we've already processed this exact history length, skip to avoid double-processing
         // between preUpdate and update hooks unless it's a recursive call.
@@ -180,9 +124,7 @@ export class MovementManager {
                 recursiveCall: isRecursive,
                 mode: mode // Send the player's mode to the GM
             };
-            const { SocketsManager } = await import("./SocketManager.ts");
-            // @ts-ignore
-            SocketsManager.socket.executeAsGM("processMovement", payload);
+            SocketSender.sendMovement(payload);
             return;
         }
 
@@ -201,7 +143,7 @@ export class MovementManager {
             await MovementManager._processNativeMovement(combatant, tokenDoc, coordList);
         }
 
-        if (!isRecursive) MovementManager.storeMovement(tokenDoc, coordList);
+        if (!isRecursive) MovementHistoryService.storeMovement(tokenDoc, coordList);
     }
 
     /**
@@ -217,7 +159,6 @@ export class MovementManager {
         const path = coordList.map(p => ({ x: p.x, y: p.y }));
         // This takes into account rough terrain and adds appropriate distance as needed
         const { distance } = (canvas.grid as any).measurePath(path);
-        const { ActionManager } = await import("./ActionManager.ts");
         const allActions = ActionManager.getFlattenedActions(combatant);
         const moveActions = allActions.filter(a => MovementManager.isMoveAction(a.msgId));
 
@@ -234,7 +175,7 @@ export class MovementManager {
         if (distance === 0 && totalRecorded === 0) return;
         const movementMode = tokenDoc.movementAction === "walk" ? "stride" : (tokenDoc.movementAction || 'stride');
         const activeSpeed = ActorManager.getActiveSpeed(actor, movementMode) || 30;
-        const isDifficult = MovementManager.checkDifficultTerrain(tokenDoc.object, coordList);
+        const isDifficult = MovementHistoryService.checkDifficultTerrain(tokenDoc.object, coordList);
 
         // --- 2. EVALUATE CHANGES ---
         if (!GlobalConfig.noHistoryConflict && distance === totalRecorded) return;
@@ -245,15 +186,12 @@ export class MovementManager {
 
         // If the last action wasn't a move, check if we're in an interruptible complex move
         if (activeMsgId && !isActiveMove) {
-            const state = lastResult?.entry.ComplexActionState;
-            if (state) {
-                const interruptedId = ComplexActionEngine.getInterruptibleMoveId(state);
-                if (interruptedId) activeMsgId = interruptedId;
-            }
+            const interruptedId = ActionManager.getInterruptibleMoveId(combatant);
+            if (interruptedId) activeMsgId = interruptedId;
         }
 
         // Detect if this movement is a continuation of the previous drag session
-        const lastCoords = MovementManager._lastCoords.get(tokenDoc.id) || [];
+        const lastCoords = MovementHistoryService.getLastCoords(tokenDoc.id);
         const isContinuation = coordList.length > 0 && lastCoords.length > 0 &&
             coordList.length >= lastCoords.length &&
             lastCoords.every((p, i) => p.x === coordList[i].x && p.y === coordList[i].y);
@@ -266,11 +204,9 @@ export class MovementManager {
         // B. ACTUAL UNDO (Ctrl+Z detected)
         if (isUndo) {
             if (lastResult && activeMsgId) {
-                const { ActionManager } = await import("./ActionManager.ts");
                 await ActionManager.removeAction(combatant, activeMsgId);
-                const { ChatManager } = await import("./ChatManager.ts");
-                ChatManager.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${lastResult.actionLabel ?? lastResult.entry.label}`, 'undoAlert');
-                MovementManager.storeMovement(tokenDoc, coordList);
+                AlertService.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${lastResult.actionLabel ?? lastResult.entry.label}`, 'undoAlert');
+                MovementHistoryService.storeMovement(tokenDoc, coordList);
                 await MovementManager._processNativeMovement(combatant, tokenDoc, coordList);
             }
             return;
@@ -286,8 +222,7 @@ export class MovementManager {
             // If it's a continuation of the same drag, we update the last move action with the new total distance for THIS segment
             if (isContinuation && lastResult && activeMsgId && isActiveMove) {
                 const newCost = Math.ceil(segmentDistance / activeSpeed);
-                const label = MovementManager.getMovementLabel(segmentDistance, newCost, movementMode, isDifficult);
-                const { ActionManager } = await import("./ActionManager.ts");
+                const label = MovementHistoryService.getMovementLabel(segmentDistance, newCost, movementMode, isDifficult);
                 await ActionManager.editAction(combatant, activeMsgId, { label, cost: newCost, slug: movementMode, distance: segmentDistance });
             } else {
                 // If it's a new drag starting from a fresh history, we treat its distance relative to what's already recorded.
@@ -295,9 +230,8 @@ export class MovementManager {
                 if (newDistance > 0) {
                     const moveMsgId = `move-${tokenDoc.id}-native-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
                     const cost = Math.ceil(newDistance / activeSpeed);
-                    const label = MovementManager.getMovementLabel(newDistance, cost, movementMode, isDifficult);
+                    const label = MovementHistoryService.getMovementLabel(newDistance, cost, movementMode, isDifficult);
 
-                    const { ActionManager } = await import("./ActionManager.ts");
                     await ActionManager.addAction(combatant, {
                         cost,
                         msgId: moveMsgId,
@@ -324,7 +258,7 @@ export class MovementManager {
         const speed = ActorManager.getActiveSpeed((combatant as any as Combatant).actor as any as ActorPF2e, movementMode);
         // Calculate distance covered in the current coordinate set
         const currentPathDistance = MovementManager._calculateTotalDistance(tokenDoc.object, coordList);
-        const lastPathDist = MovementManager._lastInteractionDistance.get(tokenId) || 0;
+        const lastPathDist = MovementHistoryService.getLastInteractionDistance(tokenId);
 
         let delta = 0;
         if (currentPathDistance < lastPathDist) {
@@ -335,24 +269,22 @@ export class MovementManager {
             delta = currentPathDistance - lastPathDist;
         }
 
-        MovementManager._lastInteractionDistance.set(tokenId, currentPathDistance);
+        MovementHistoryService.setLastInteractionDistance(tokenId, currentPathDistance);
 
         if (delta <= 0) return;
 
-        const { ActionManager } = await import("./ActionManager.ts");
         const lastResult = ActionManager.getLastAction(combatant);
         const activeMsgId = lastResult?.isSubAction ? lastResult.subAction?.msgId : lastResult?.entry.msgId;
         const isActiveMove = activeMsgId ? MovementManager.isMoveAction(activeMsgId) : false;
 
-        const isDifficult = MovementManager.checkDifficultTerrain(tokenDoc.object, coordList);
+        const isDifficult = MovementHistoryService.checkDifficultTerrain(tokenDoc.object, coordList);
         if (lastResult && isActiveMove && activeMsgId && lastPathDist > 0) {
             // Extend existing move action
             const oldDist = (lastResult.isSubAction ? lastResult.subAction?.distance : lastResult.entry.distance) || 0;
             const newDist = oldDist + delta;
             const newCost = Math.ceil(newDist / speed);
-            const label = MovementManager.getMovementLabel(newDist, newCost, movementMode, isDifficult);
+            const label = MovementHistoryService.getMovementLabel(newDist, newCost, movementMode, isDifficult);
 
-            const { ActionManager } = await import("./ActionManager.ts");
             await ActionManager.editAction(combatant, activeMsgId, {
                 label,
                 cost: newCost,
@@ -361,10 +293,8 @@ export class MovementManager {
         } else {
             // Start new move action
             const cost = Math.ceil(delta / speed);
-            const label = MovementManager.getMovementLabel(delta, cost, movementMode, isDifficult);
+            const label = MovementHistoryService.getMovementLabel(delta, cost, movementMode, isDifficult);
 
-
-            const { ActionManager } = await import("./ActionManager.ts");
             await ActionManager.addAction(combatant, {
                 cost,
                 msgId: `move-${tokenId}-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -380,16 +310,7 @@ export class MovementManager {
     }
 
     static isMoveAction(msgId: string): boolean {
-        if (!msgId) return false;
-        const lower = msgId.toLowerCase();
-        return lower.startsWith('move-') ||
-            lower.includes('-stride') ||
-            lower.includes('-step') ||
-            lower.includes('-fly') ||
-            lower.includes('-walk') ||
-            lower.includes('-burrow') ||
-            lower.includes('-climb') ||
-            lower.includes('-swim');
+        return isMoveAction(msgId);
     }
 
     /**
@@ -409,7 +330,6 @@ export class MovementManager {
     }
 
     private static async _removeMoveAction(combatant: CombatantPF2e) {
-        const { ActionManager } = await import("./ActionManager.ts");
         const lastResult = ActionManager.getLastAction(combatant);
         const activeMsgId = lastResult?.isSubAction ? lastResult.subAction?.msgId : lastResult?.entry.msgId;
 
@@ -421,7 +341,6 @@ export class MovementManager {
     private static async _performUndo(combatant: CombatantPF2e, actor: any, tokenDoc: any) {
         let safety = 0;
         while (safety < 50) {
-            const { ActionManager } = await import("./ActionManager.ts");
             const lastResult = ActionManager.getLastAction(combatant);
             if (!lastResult) {
                 break;
@@ -431,22 +350,18 @@ export class MovementManager {
             const label = lastResult.isSubAction ? lastResult.actionLabel : lastResult.entry.label;
 
             if (targetId) {
-                const { ActionManager } = await import("./ActionManager.ts");
                 const wasMove = MovementManager.isMoveAction(targetId);
                 await ActionManager.removeAction(combatant, targetId);
 
                 if (!wasMove) {
-                    const { ChatManager } = await import("./ChatManager.ts");
-                    ChatManager.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${label}`, 'undoAlert');
+                    AlertService.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${label}`, 'undoAlert');
                 } else {
                     break; // Successfully removed the movement segment
                 }
             }
             safety++;
         }
-        MovementManager._historyLengths.delete(tokenDoc.id);
-        MovementManager._lastInteractionDistance.delete(tokenDoc.id);
-        MovementManager.resetCapturedHistory(tokenDoc.id);
+        MovementHistoryService.resetCapturedHistory(tokenDoc.id);
     }
 
     /**
@@ -456,29 +371,5 @@ export class MovementManager {
         // Ensure we're using the fresh list of coords provided by the player
         // Use the mode provided by the player client
         await this._processMovement(combatant, tokenDoc, data.coordList, data.recursiveCall, data.mode);
-    }
-
-    static getMovementLabel(distance: number, cost: number, mode: string, isDifficult: boolean) {
-        if (distance === 5 && cost === 1 && !isDifficult && mode === "stride") {
-            return 'Step';
-        }
-        const capitalized = mode.charAt(0).toUpperCase() + mode.slice(1);
-        return `${capitalized}: ${distance}ft`;
-    }
-
-    private static checkDifficultTerrain(token: any, coordList: any[]): boolean {
-        if (!canvas.regions) return false;
-        const lastPoint = coordList[coordList.length - 1];
-        if (!lastPoint) return false;
-
-        return (canvas.regions as any).placeables.some((r: any) =>
-            r.document.behaviors.some((b: any) => !b.disabled && b.type === "environmentFeature") &&
-            token.testInsideRegion(r, lastPoint)
-        );
-    }
-
-    private static storeMovement(tokenDoc: any, coordList: any[]) {
-        MovementManager._lastCoords.set(tokenDoc.id, coordList);
-        MovementManager._historyLengths.set(tokenDoc.id, coordList.length);
     }
 }

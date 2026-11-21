@@ -283,3 +283,5 @@ export class ComplexActionFormatter {
         return `${initials}${finalSeparator} ${connector} ${last}`;
     }
 }
+
+ComplexActionEngine.registerFormatter((state) => ComplexActionFormatter.toString(state));

@@ -12,10 +12,9 @@
         "moduleResolution": "bundler",
         "esModuleInterop": true,
         "skipLibCheck": true,
-        "baseUrl": ".",
         "paths": {
             "fvtt-types": [
-                "node_modules/fvtt-types/src/index.d.mts"
+                "./node_modules/fvtt-types/src/index.d.mts"
             ]
         },
         "types": [

@@ -71,7 +71,7 @@ globalThis.game = {
     },
 };
 
-const { ChatManager } = await import("../src/ChatManager.ts");
+const { ChatManager } = await import("../src/chat/ChatManager.ts");
 
 const message = {
     id: "message-1",

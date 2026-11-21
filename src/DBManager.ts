@@ -2,7 +2,8 @@ import { SCOPE } from "./globals.ts";
 import { ActorManager } from "./ActorManager.ts";
 import { SettingsManager } from "./SettingsManager.ts";
 import { isCurrentUserActiveGM } from "./foundryCompat.ts";
-import type { ActionLogEntry } from "./ActionLogTypes";
+import { type ActionLogEntry, getEntryCost } from "./ActionLogTypes.ts";
+import { AlertService } from "./chat/AlertService.ts";
 import type { CombatantPF2e } from "module-helpers";
 
 export class DBManager {
@@ -40,10 +41,9 @@ export class DBManager {
         if (!isCurrentUserActiveGM()) return;
 
         const c = combatant as any;
-        const { ActionManager } = await import("./ActionManager");
 
-        const actionsSpent = newLogs.filter(e => e.type !== 'reaction').reduce((sum, e) => sum + ActionManager.getEntryCost(e, newLogs), 0);
-        const reactionsSpent = newLogs.filter(e => e.type === 'reaction').reduce((sum, e) => sum + ActionManager.getEntryCost(e, newLogs), 0);
+        const actionsSpent = newLogs.filter(e => e.type !== 'reaction').reduce((sum, e) => sum + getEntryCost(e, newLogs), 0);
+        const reactionsSpent = newLogs.filter(e => e.type === 'reaction').reduce((sum, e) => sum + getEntryCost(e, newLogs), 0);
 
         const hasQuickenedSnapshot = ActorManager.hasQuickenedSnapshot(combatant);
 
@@ -98,16 +98,14 @@ export class DBManager {
 
         const { overspent } = ActorManager.allocateSlots(combatant, newLogs, 'action');
 
-        const { ActionManager } = await import("./ActionManager");
         const actionLog = newLogs.filter(e => e.type !== 'reaction');
-        const rawTotalSpent = actionLog.reduce((sum, e) => sum + ActionManager.getEntryCost(e, newLogs), 0);
+        const rawTotalSpent = actionLog.reduce((sum, e) => sum + getEntryCost(e, newLogs), 0);
 
         if (overspent.length > 0) {
             const reason = `Spent actions that exceeded available slots (${overspent.map(o => o.label).join(', ')}).`;
             const lastAlert = (c.getFlag(SCOPE, "lastOverspendAlert") as number) || 0;
             if (rawTotalSpent > lastAlert) {
-                const { ChatManager } = await import("./ChatManager");
-                await ChatManager.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperOverspend');
+                await AlertService.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperOverspend');
             }
             return { lastOverspendAlert: rawTotalSpent };
         }
@@ -126,8 +124,7 @@ export class DBManager {
 
         if (overspent.length > 0) {
             const reason = `Spent reactions that exceeded available slots (${overspent.map(o => o.label).join(', ')}).`;
-            const { ChatManager } = await import("./ChatManager");
-            await ChatManager.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperReactionOverspend');
+            await AlertService.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperReactionOverspend');
         }
     }
 }

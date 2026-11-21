@@ -1,12 +1,22 @@
 import { SPECIAL_ACTIVITIES } from "./library.ts";
 import type { ActiveActivityState, LeafState, OperatorNode, ActionNode, GroupNode } from "./types.d.ts";
 import { type ActionLogEntry, getEntryCost } from "../ActionLogTypes.ts";
-import { MovementManager } from "../MovementManager.ts";
+import { MovementHistoryService } from "../MovementHistoryService.ts";
 import type { CombatantPF2e, ActorPF2e } from "module-helpers";
-import { ComplexActionFormatter } from "./ComplexActionFormatter.ts";
 import { ActorManager } from "../ActorManager.ts"
 
+export type ComplexActionFormatCallback = (state: ActiveActivityState) => string;
+
 export class ComplexActionEngine {
+    private static _formatCallback?: ComplexActionFormatCallback;
+
+    static registerFormatter(formatter: ComplexActionFormatCallback) {
+        this._formatCallback = formatter;
+    }
+
+    static formatState(state: ActiveActivityState): string {
+        return this._formatCallback ? this._formatCallback(state) : state.activitySlug;
+    }
 
     static maybeStart(slug: string, parentMessageId: string, tokenDoc: any): ActiveActivityState | null {
         const definition = SPECIAL_ACTIVITIES.find(a => a.slug === slug);
@@ -47,7 +57,7 @@ export class ComplexActionEngine {
             completedBy: undefined,
             leaves,
             orderedActivityChildActions: [],
-            historyAnchorIndex: ((tokenDoc as any)?._movementHistory?.length) ?? (tokenDoc?.id ? MovementManager.getCapturedHistory(tokenDoc.id)?.length : 0) ?? 0
+            historyAnchorIndex: ((tokenDoc as any)?._movementHistory?.length) ?? (tokenDoc?.id ? MovementHistoryService.getCapturedHistory(tokenDoc.id)?.length : 0) ?? 0
         };
     }
 
@@ -401,7 +411,7 @@ export class ComplexActionEngine {
                         if (result.claimed) {
                             console.log("ComplexActionEngine: Delegated action claim to child ComplexActionState", childAction.ComplexActionState.activitySlug);
                             leaf.childActions[j].ComplexActionState = result.newState;
-                            leaf.childActions[j].label = ComplexActionFormatter.toString(result.newState);
+                            leaf.childActions[j].label = ComplexActionEngine.formatState(result.newState);
 
                             // SYNC to orderedActivityChildActions so the state is strictly consistent!
                             const orderedIndex = state.orderedActivityChildActions.findIndex(a => a.msgId === childAction.msgId);
@@ -455,15 +465,15 @@ export class ComplexActionEngine {
 
                 let fullHistory = (tokenDoc as any)?._movementHistory || [];
                 if (fullHistory.length === 0 && typeof tokenId === 'string') {
-                    fullHistory = MovementManager.getCapturedHistory(tokenId) || [];
+                    fullHistory = MovementHistoryService.getCapturedHistory(tokenId) || [];
                 }
 
                 // Slice history from the anchor to the current moment
                 const activityPath = fullHistory.slice(state.historyAnchorIndex);
 
                 if (activityPath.length > 0) {
-                    // Ask MovementManager to measure this specific slice
-                    let { distance, cost, label } = MovementManager.measurePath(actor, tokenDoc?.object, activityPath, movementMode);
+                    // Ask MovementHistoryService to measure this specific slice
+                    let { distance, cost, label } = MovementHistoryService.measurePath(actor, tokenDoc?.object, activityPath, movementMode);
 
                     if (incoming.slug === 'sneak') {
                         const activeSpeed = ActorManager.getActiveSpeed((actor as any as ActorPF2e), "stride") || 30;
@@ -768,7 +778,7 @@ export class ComplexActionEngine {
 
         let fullHistory = (tokenDoc as any)?._movementHistory || [];
         if (fullHistory.length === 0 && typeof tokenId === 'string') {
-            fullHistory = MovementManager.getCapturedHistory(tokenId) || [];
+            fullHistory = MovementHistoryService.getCapturedHistory(tokenId) || [];
         }
 
         const activityPath = fullHistory.slice(state.historyAnchorIndex);
@@ -776,7 +786,7 @@ export class ComplexActionEngine {
         if (activityPath.length === 0) return null;
 
         const movementMode = leaf.subtype || 'stride';
-        let { distance, cost, label } = MovementManager.measurePath(actor, tokenDoc?.object, activityPath, movementMode === 'sneak' ? 'stride' : movementMode);
+        let { distance, cost, label } = MovementHistoryService.measurePath(actor, tokenDoc?.object, activityPath, movementMode === 'sneak' ? 'stride' : movementMode);
 
         if (movementMode === 'sneak') {
             const activeSpeed = ActorManager.getActiveSpeed(actor, "stride") || 30;

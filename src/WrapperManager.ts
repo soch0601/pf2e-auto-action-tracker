@@ -1,10 +1,11 @@
-import { ChatManager } from "./ChatManager.ts";
-import { ItemManager } from "./ItemManager.ts";
+import { ChatManager } from "./chat/ChatManager.ts";
+import { ItemManager } from "./items/ItemManager.ts";
 import { logWarn } from "./logger.ts";
 import { recentIntent } from "./globals.ts";
 import { findCombatantByMessage } from "./foundryCompat.ts";
 import { SCOPE } from "./globals.ts";
-import { ChatPendingState } from "./ChatPendingState.ts";
+import { ChatPendingState } from "./chat/ChatPendingState.ts";
+import { ChatCardRenderer } from "./chat/ChatCardRenderer.ts";
 
 declare const libWrapper: any;
 
@@ -104,8 +105,6 @@ export class WrapperManager {
         this.tryRegister(
             "CONFIG.Actor.documentClass.prototype.applyDamage",
             async function (this: any, wrapped: Function, ...args: any[]) {
-                const { ChatCardRenderer } = await import("./ChatCardRenderer.ts");
-                const { ChatPendingState } = await import("./ChatPendingState.ts");
                 // Prioritize the synchronous variable as it is the most "fresh"
                 const lastDamageMsgId = ChatCardRenderer.lastClickedMessageId || (game as any).user.getFlag(SCOPE, "lastDamageMessageId");
 

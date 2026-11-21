@@ -477,7 +477,7 @@ const systemDrainTooltip = "Used: Slowed 1";
 assert.equal(systemDrainTooltip, "Used: Slowed 1");
 
 const css = readFileSync(join(__dirname, "../public/style.css"), "utf8");
-const combatUiSource = readFileSync(join(__dirname, "../src/CombatUIManager.ts"), "utf8");
+const combatUiSource = readFileSync(join(__dirname, "../src/ui/CombatUIManager.ts"), "utf8");
 const mainSource = readFileSync(join(__dirname, "../src/main.ts"), "utf8");
 const hudCombatantRule = getCssRule(css, "#pf2e-hud-tracker .combatants .combatant");
 const hudControlsRule = getCssRule(css, "#pf2e-hud-tracker .combatants .combatant .details .controls");
