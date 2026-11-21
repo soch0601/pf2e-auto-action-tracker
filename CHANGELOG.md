@@ -2,6 +2,11 @@
 
 All notable changes to **PF2E Automated Action Tracker** are documented in this file.
 
+## [v0.20.0] - 2026-11-21
+feat/84: Address tech debt (#85)
+
+* feat/84: Address tech debt
+
 ## [v0.19.5] - 2026-11-07
 - fix/82 - adding more complex actions to library (#83)
 
