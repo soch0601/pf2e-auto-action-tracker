@@ -1,8 +1,6 @@
-import type { CombatantPF2e } from "module-helpers";
 import { ActionManager } from "../ActionManager.ts";
 import { MovementManager } from "../MovementManager.ts";
 import { DBManager } from "../DBManager.ts";
-import { ComplexActionEngine } from "../complexActions/ComplexActionEngine.ts";
 import { logWarn } from "../logger.ts";
 import { ActionDialogs } from "./ActionDialogs.ts";
 
@@ -16,7 +14,7 @@ export class ActionTrackerEvents {
         html.dataset.pf2eAutoActionTrackerListeners = "true";
 
         // Capture phase listeners (true) to override Foundry core behavior
-        html.addEventListener('click', (event: MouseEvent) => {
+        html.addEventListener('click', async (event: MouseEvent) => {
             const target = event.target as HTMLElement;
             // Check if the click was on the icon OR inside the icon
             const iconBtn = target.closest('.action-icon');
@@ -25,11 +23,11 @@ export class ActionTrackerEvents {
                 event.preventDefault();
                 event.stopPropagation();
                 event.stopImmediatePropagation();
-                this.handleIconClick(iconBtn as HTMLElement); // Pass the SPAN, not the I tag
+                await this.handleIconClick(iconBtn as HTMLElement); // Pass the SPAN, not the I tag
             }
         }, true);
 
-        html.addEventListener('contextmenu', (event: MouseEvent) => {
+        html.addEventListener('contextmenu', async (event: MouseEvent) => {
             const target = event.target as HTMLElement;
             if (target?.classList.contains('action-icon')) {
                 event.preventDefault();
@@ -37,7 +35,7 @@ export class ActionTrackerEvents {
                 event.stopImmediatePropagation();
 
                 if (this.canUserModify(target)) {
-                    this.handleIconContextMenu(target);
+                    await this.handleIconContextMenu(target);
                 }
             }
         }, true);
@@ -73,89 +71,81 @@ export class ActionTrackerEvents {
         const combatantId = btn.dataset.combatantId;
         const combatant = (game.combat as any)?.combatants.get(combatantId);
 
-        // Handle Finish Button
         if (btn.classList.contains('finish-button')) {
-            if (btn.classList.contains('disabled')) return; // Guard for minOccurrences
-
-            if (combatant) {
-                // Trigger engine completion
-                const lastAction = ActionManager.getLastAction(combatant);
-                const lastSpecialAction = lastAction?.entry.ComplexActionState;
-                if (!lastSpecialAction) {
-                    logWarn("Couldn't find Special Action to complete... Aborting...");
-                    return;
-                }
-
-                await ActionManager.completeComplexAction(combatant, lastAction.entry);
-                return;
-            }
-        }
-
-        // Handle Add Button
-        if (btn.classList.contains('add-button')) {
-            if (combatant) return ActionDialogs.showManualActionDialog(combatant);
-        }
-
-        const msgId = target.dataset.msgId;
-
-        // Unclickable list
-        if (!msgId ||
-            msgId === 'System' ||
-            msgId.startsWith('manual-') ||
-            MovementManager.isMoveAction(msgId)) {
+            await this.handleFinishButtonClick(btn, combatant);
             return;
         }
 
-        // --- Permission Check ---
-        const message = game.messages.get(msgId);
-        let canSeeMessage = true;
-        if (message) {
-            const userId = (game as any).user.id;
-            const isGM = (game as any).user.isGM;
-            const isAuthor = message.author?.id === userId;
-            const isWhisperedToMe = message.whisper.includes(userId);
-            const isPublic = message.whisper.length === 0 && !message.blind;
-
-            canSeeMessage = isGM || isAuthor || isWhisperedToMe || isPublic;
+        if (btn.classList.contains('add-button')) {
+            if (combatant) await ActionDialogs.showManualActionDialog(combatant);
+            return;
         }
-        if (message && !canSeeMessage) {
+
+        const msgId = target.dataset.msgId;
+        if (!this.isClickableMessageId(msgId)) return;
+
+        const message = game.messages.get(msgId);
+        if (message && !this.canUserSeeMessage(message)) {
             ui.notifications.warn("You cannot view the source of a secret action.");
             return;
         }
 
         await (ui.sidebar as any).activateTab("chat");
+        this.scrollToAndHighlightMessage(msgId, !!message);
+    }
 
-        // Use the ChatMessage's own scroll method if it exists, or find it via the collection
-        if (message) {
-            const li = document.querySelector(`[data-message-id="${msgId}"]`) as HTMLElement;
+    private static async handleFinishButtonClick(btn: HTMLElement, combatant: any) {
+        if (btn.classList.contains('disabled') || !combatant) return;
 
-            if (li) {
-                li.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-                // Add our custom glow class
-                li.classList.add('pf2e-action-highlight');
-
-                // Remove it after 4 seconds so it doesn't pulse forever
-                setTimeout(() => {
-                    if (li) li.classList.remove('pf2e-action-highlight');
-                }, 4000);
-            }
-        } else {
-            // If it's not in the DOM, flush the chat log
-            (ui.chat as any).scrollStep(0); // Forces a refresh of the view
-
-            // Final attempt after a slightly longer delay for lazy loading
-            setTimeout(() => {
-                const retryLi = document.querySelector(`[data-message-id="${msgId}"]`) as HTMLElement;
-                if (retryLi) {
-                    retryLi.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    retryLi.classList.add('highlight');
-                    setTimeout(() => retryLi.classList.remove('highlight'), 2000);
-                } else {
-                    ui.notifications.info("Action source found, but too far back in history to highlight.");
-                }
-            }, 250);
+        const lastAction = ActionManager.getLastAction(combatant);
+        if (!lastAction?.entry.ComplexActionState) {
+            logWarn("Couldn't find Special Action to complete... Aborting...");
+            return;
         }
+
+        await ActionManager.completeComplexAction(combatant, lastAction.entry);
+    }
+
+    private static isClickableMessageId(msgId: string | undefined): msgId is string {
+        if (!msgId) return false;
+        return msgId !== 'System' && !msgId.startsWith('manual-') && !MovementManager.isMoveAction(msgId);
+    }
+
+    private static canUserSeeMessage(message: any): boolean {
+        const userId = (game as any).user.id;
+        const isGM = (game as any).user.isGM;
+        const isAuthor = message.author?.id === userId;
+        const isWhisperedToMe = message.whisper.includes(userId);
+        const isPublic = message.whisper.length === 0 && !message.blind;
+
+        return isGM || isAuthor || isWhisperedToMe || isPublic;
+    }
+
+    private static scrollToAndHighlightMessage(msgId: string, hasMessageInCollection: boolean) {
+        if (hasMessageInCollection) {
+            const li = document.querySelector(`[data-message-id="${msgId}"]`) as HTMLElement | null;
+            if (li) {
+                this.highlightChatElement(li, 'pf2e-action-highlight', 4000);
+            }
+            return;
+        }
+
+        // If it's not in the DOM, flush the chat log and retry after lazy loading
+        (ui.chat as any).scrollStep(0);
+        setTimeout(() => {
+            const retryLi = document.querySelector(`[data-message-id="${msgId}"]`) as HTMLElement | null;
+            if (retryLi) {
+                this.highlightChatElement(retryLi, 'highlight', 2000);
+            } else {
+                ui.notifications.info("Action source found, but too far back in history to highlight.");
+            }
+        }, 250);
+    }
+
+    private static highlightChatElement(element: HTMLElement, highlightClass: string, durationMs: number) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        element.classList.add(highlightClass);
+        setTimeout(() => element.classList.remove(highlightClass), durationMs);
     }
 
     /**

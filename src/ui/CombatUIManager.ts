@@ -103,7 +103,6 @@ export class CombatUIManager {
             overflowCount: 0,
             hasRenderedOverspent: false
         };
-        const MAX_PIPS = 6;
 
         // --- 3. Build the DOM ---
         for (let i = 0; i < pipsToRender.length; i++) {

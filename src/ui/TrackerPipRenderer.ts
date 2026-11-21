@@ -75,108 +75,29 @@ export class TrackerPipRenderer {
         actionLine: HTMLElement
     ) {
         const isOver = !!pip.isOver;
-
-        // Strictly allow only ONE overspent pip to be rendered
-        if (isOver && state.hasRenderedOverspent) {
-            state.overflowCount++;
-            return;
-        }
-
-        // Normal MAX_PIPS capping for unspent/spent actions
-        if (state.pipsRendered >= this.MAX_PIPS) {
-            if (isOver && !state.hasRenderedOverspent) {
-                // First overspent pip is permitted
-            } else {
-                if (isOver) state.overflowCount++;
-                return;
-            }
-        }
-
-        if (isOver) {
-            state.hasRenderedOverspent = true;
-        }
+        if (!this.shouldRenderPip(isOver, state)) return;
 
         if (!pip.entry) {
-            // Unspent
-            const span = document.createElement("span");
-            span.className = `action-icon unspent ${pip.isGold ? 'quickened' : ''} tracker-tooltip`;
-
-            let tooltip = "Available Action";
-            if (pip.slot && pip.slot.definition) {
-                tooltip = `Available Action (${pip.slot.definition.name})`;
-            } else if (pip.isGold) {
-                tooltip = "Available Bonus Action";
-            }
-
-            span.dataset.tooltip = tooltip;
-            span.textContent = "A";
-            actionLine.appendChild(span);
+            this.renderUnspentPip(pip, actionLine);
             state.pipsRendered++;
             return;
         }
 
         const entry = pip.entry;
-        const isGold = pip.isGold;
-
         const message = game.messages.get(entry.msgId || "");
+        const canSeeMessage = this.canCurrentUserSeeMessage(message);
+        const iconChar = this.getSpentPipIconChar(pip, entry, pipsToRender);
 
-        // 1. Determine Visibility
-        let canSeeMessage = message ? message.visible : true;
-        if (message) {
-            const userId = game.user?.id;
-            const isGM = game.user?.isGM;
-            const isAuthor = message.author?.id === userId;
-            const isWhisperedToMe = message.whisper.includes(userId || "");
-
-            canSeeMessage = isGM || isAuthor || isWhisperedToMe || (message.whisper.length === 0 && !message.blind);
-        }
-
-        const displayLabel = canSeeMessage ? entry.label : "Secret Action";
         const span = document.createElement("span");
-
-        // 2. Logic for Icons (A, D, T)
-        let iconChar = "";
-        if (isGold) {
-            iconChar = "A";
-        } else {
-            const normalPipsForEntry = pipsToRender.filter(p => p.entry === entry && !p.isGold);
-            const normalTotalCost = normalPipsForEntry.length;
-            const normalSubIdx = normalPipsForEntry.indexOf(pip);
-
-            if (normalSubIdx === 0) {
-                iconChar = this.CHAR_MAP[normalTotalCost.toString()] || "A";
-            }
-        }
-
-        // 3. Security & Interaction
-        span.className = `action-icon spent ${isGold ? 'quickened' : ''} ${isOver ? 'overspend-pip' : ''} tracker-tooltip`;
-
-        if (!canSeeMessage) {
-            span.style.cursor = "default";
-            span.dataset.tooltip = `Used: Secret Action${isGold ? ' (Bonus Action)' : ''}`;
-            span.addEventListener("click", (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-            }, { capture: true });
-        } else {
-            let suffix = '';
-            if (pip.slot && pip.slot.definition) suffix = ` (${pip.slot.definition.name})`;
-            else if (isGold) suffix = ` (Bonus Action)`;
-
-            const fbInfo = getForceBarrageInfo(entry, flattenedLog);
-            const fullTooltip = `Used: ${displayLabel}${suffix}${isOver ? ' (Overspent)' : ''}${fbInfo ? ` - ${fbInfo}` : ''}`;
-            span.dataset.tooltip = fullTooltip.replace(/\n/g, "<br>");
-
-            if (entry.type === "system" || entry.msgId === "System") {
-                span.style.cursor = "default";
-            } else {
-                span.dataset.msgId = entry.msgId || '';
-                span.style.cursor = "pointer";
-            }
-        }
-
+        span.className = `action-icon spent ${pip.isGold ? 'quickened' : ''} ${isOver ? 'overspend-pip' : ''} tracker-tooltip`;
         span.dataset.icon = iconChar;
         span.textContent = iconChar;
+
+        if (!canSeeMessage) {
+            this.configureSecretPip(span, pip.isGold);
+        } else {
+            this.configureVisiblePip(span, pip, entry, flattenedLog);
+        }
 
         actionLine.appendChild(span);
         state.pipsRendered++;
@@ -186,6 +107,97 @@ export class TrackerPipRenderer {
             warn.className = "overspend-exclamation";
             warn.textContent = "!";
             actionLine.appendChild(warn);
+        }
+    }
+
+    private static shouldRenderPip(
+        isOver: boolean,
+        state: { pipsRendered: number; overflowCount: number; hasRenderedOverspent: boolean }
+    ): boolean {
+        // Strictly allow only ONE overspent pip to be rendered
+        if (isOver && state.hasRenderedOverspent) {
+            state.overflowCount++;
+            return false;
+        }
+
+        // Normal MAX_PIPS capping for unspent/spent actions (first overspent pip is still permitted)
+        if (state.pipsRendered >= this.MAX_PIPS && !(isOver && !state.hasRenderedOverspent)) {
+            if (isOver) state.overflowCount++;
+            return false;
+        }
+
+        if (isOver) {
+            state.hasRenderedOverspent = true;
+        }
+
+        return true;
+    }
+
+    private static renderUnspentPip(pip: PipRenderModel, actionLine: HTMLElement) {
+        const span = document.createElement("span");
+        span.className = `action-icon unspent ${pip.isGold ? 'quickened' : ''} tracker-tooltip`;
+
+        let tooltip = "Available Action";
+        if (pip.slot?.definition) {
+            tooltip = `Available Action (${pip.slot.definition.name})`;
+        } else if (pip.isGold) {
+            tooltip = "Available Bonus Action";
+        }
+
+        span.dataset.tooltip = tooltip;
+        span.textContent = "A";
+        actionLine.appendChild(span);
+    }
+
+    private static canCurrentUserSeeMessage(message: any): boolean {
+        if (!message) return true;
+
+        const userId = game.user?.id;
+        const isGM = !!game.user?.isGM;
+        const isAuthor = message.author?.id === userId;
+        const isWhisperedToMe = message.whisper.includes(userId || "");
+
+        return isGM || isAuthor || isWhisperedToMe || (message.whisper.length === 0 && !message.blind);
+    }
+
+    private static getSpentPipIconChar(pip: PipRenderModel, entry: ActionLogEntry, pipsToRender: PipRenderModel[]): string {
+        if (pip.isGold) return "A";
+
+        const normalPipsForEntry = pipsToRender.filter(p => p.entry === entry && !p.isGold);
+        const normalSubIdx = normalPipsForEntry.indexOf(pip);
+        if (normalSubIdx !== 0) return "";
+
+        return this.CHAR_MAP[normalPipsForEntry.length.toString()] || "A";
+    }
+
+    private static configureSecretPip(span: HTMLElement, isGold: boolean) {
+        span.style.cursor = "default";
+        span.dataset.tooltip = `Used: Secret Action${isGold ? ' (Bonus Action)' : ''}`;
+        span.addEventListener("click", (e) => {
+            e.stopPropagation();
+            e.preventDefault();
+        }, { capture: true });
+    }
+
+    private static configureVisiblePip(
+        span: HTMLElement,
+        pip: PipRenderModel,
+        entry: ActionLogEntry,
+        flattenedLog: ActionLogEntry[]
+    ) {
+        let suffix = '';
+        if (pip.slot?.definition) suffix = ` (${pip.slot.definition.name})`;
+        else if (pip.isGold) suffix = ` (Bonus Action)`;
+
+        const fbInfo = getForceBarrageInfo(entry, flattenedLog);
+        const fullTooltip = `Used: ${entry.label}${suffix}${pip.isOver ? ' (Overspent)' : ''}${fbInfo ? ` - ${fbInfo}` : ''}`;
+        span.dataset.tooltip = fullTooltip.replace(/\n/g, "<br>");
+
+        if (entry.type === "system" || entry.msgId === "System") {
+            span.style.cursor = "default";
+        } else {
+            span.dataset.msgId = entry.msgId || '';
+            span.style.cursor = "pointer";
         }
     }
 

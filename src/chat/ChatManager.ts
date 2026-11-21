@@ -21,11 +21,11 @@ type CombatantId = string;
 export class ChatManager {
     private static rerollQueue: Record<CombatantId, string[]> = {};
 
-    public static async deleteMessage(msgId: string) {
+    public static deleteMessage(msgId: string) {
         return ChatMessageService.deleteMessage(msgId);
     }
 
-    public static async deleteMessages(msgIds: string[]) {
+    public static deleteMessages(msgIds: string[]) {
         return ChatMessageService.deleteMessages(msgIds);
     }
 
@@ -297,11 +297,11 @@ export class ChatManager {
         return originatingMsgId;
     }
 
-    public static async checkSustainReminder(combatant: CombatantPF2e) {
+    public static checkSustainReminder(combatant: CombatantPF2e) {
         return SustainReminderService.checkSustainReminder(combatant);
     }
 
-    public static async triggerAlert(actor: ActorPF2e, header: string, message: string, settingKey: string) {
+    public static triggerAlert(actor: ActorPF2e, header: string, message: string, settingKey: string) {
         return AlertService.triggerAlert(actor, header, message, settingKey);
     }
 
@@ -312,7 +312,7 @@ export class ChatManager {
         }
     }
 
-    public static async broadcastReroll(combatantId: string, msgId: string) {
+    public static broadcastReroll(combatantId: string, msgId: string) {
         this.addToRerollQueue(combatantId, msgId);
         if (!isCurrentUserActiveGM()) {
             SocketSender.sendQueueReroll(combatantId, msgId);

@@ -96,12 +96,12 @@ export class SocketReceiver {
         await ActionManager.completeComplexAction(combatant as any, data.action);
     }
 
-    private static async handleQueueRerollRequest(data: any) {
+    private static handleQueueRerollRequest(data: any) {
         if (!(game as any).user.isGM) return;
         ChatManager.addToRerollQueue(data.combatantId, data.msgId);
     }
 
-    private static async handleResetHistoryRequest(data: any) {
+    private static handleResetHistoryRequest(data: any) {
         MovementHistoryService.resetCapturedHistory(data.tokenId);
     }
 

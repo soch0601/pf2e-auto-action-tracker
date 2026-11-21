@@ -14,7 +14,7 @@ import { MovementHistoryService } from "./MovementHistoryService.ts";
 const MOVEMENT_FLAG = "movementHistorySnapshot";
 
 export class MovementManager {
-    static async handlePreUpdateToken(tokenDoc: any, update: any, options: any) {
+    static handlePreUpdateToken(tokenDoc: any, update: any, options: any) {
         if (!GlobalConfig.noHistoryConflict) return;
 
         if ("x" in update || "y" in update) {

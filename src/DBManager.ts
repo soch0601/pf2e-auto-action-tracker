@@ -78,11 +78,11 @@ export class DBManager {
 
         // --- Overspend Logic ---
         if (!skipOverspendCheck) {
-            const economyUpdate = await this.checkOverspend(combatant, newLogs);
+            const economyUpdate = this.checkOverspend(combatant, newLogs);
             if (economyUpdate) {
                 updateData[`flags.${SCOPE}.lastOverspendAlert`] = economyUpdate.lastOverspendAlert;
             }
-            await this.checkReactionOverspend(combatant, newLogs);
+            this.checkReactionOverspend(combatant, newLogs);
         }
 
         await c.update(updateData, { diff: false, recursive: false });
@@ -91,7 +91,7 @@ export class DBManager {
     /**
       * Logic to determine if an over spending alert should be sent for actions.
       */
-    static async checkOverspend(combatant: CombatantPF2e, newLogs: ActionLogEntry[]): Promise<{ lastOverspendAlert: number } | null> {
+    static checkOverspend(combatant: CombatantPF2e, newLogs: ActionLogEntry[]): { lastOverspendAlert: number } | null {
         const c = combatant as any;
         const actor = c.actor;
         if (!actor || !SettingsManager.get("whisperOverspend") || !isCurrentUserActiveGM()) return null;
@@ -105,7 +105,7 @@ export class DBManager {
             const reason = `Spent actions that exceeded available slots (${overspent.map(o => o.label).join(', ')}).`;
             const lastAlert = (c.getFlag(SCOPE, "lastOverspendAlert") as number) || 0;
             if (rawTotalSpent > lastAlert) {
-                await AlertService.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperOverspend');
+                AlertService.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperOverspend');
             }
             return { lastOverspendAlert: rawTotalSpent };
         }
@@ -115,7 +115,7 @@ export class DBManager {
     /**
       * Logic to determine if an over spending alert should be sent for reactions. 
       */
-    static async checkReactionOverspend(combatant: CombatantPF2e, newLogs: ActionLogEntry[]) {
+    static checkReactionOverspend(combatant: CombatantPF2e, newLogs: ActionLogEntry[]) {
         const c = combatant as any;
         const actor = c.actor;
         if (!actor || !SettingsManager.get("whisperReactionOverspend") || !isCurrentUserActiveGM()) return;
@@ -124,7 +124,7 @@ export class DBManager {
 
         if (overspent.length > 0) {
             const reason = `Spent reactions that exceeded available slots (${overspent.map(o => o.label).join(', ')}).`;
-            await AlertService.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperReactionOverspend');
+            AlertService.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperReactionOverspend');
         }
     }
 }

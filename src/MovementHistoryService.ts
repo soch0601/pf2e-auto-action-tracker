@@ -10,7 +10,7 @@ export class MovementHistoryService {
     private static _lastInteractionDistance = new Map<string, number>();
     private static _lastCoords = new Map<string, any[]>();
 
-    static async broadcastReset(tokenId?: string) {
+    static broadcastReset(tokenId?: string) {
         SocketSender.broadcastResetMovementHistory(tokenId);
     }
 

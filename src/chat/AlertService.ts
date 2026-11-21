@@ -5,7 +5,7 @@ export class AlertService {
     /**
      * Broadcasts an economy or action alert (whisper or banner) to relevant owners and GM.
      */
-    static async triggerAlert(actor: ActorPF2e, header: string, message: string, settingKey: string): Promise<void> {
+    static triggerAlert(actor: ActorPF2e, header: string, message: string, settingKey: string): void {
         const playerIds = Object.entries(actor.ownership || {})
             .filter(([id, level]) => level === 3 && id !== "default")
             .map(([id]) => id);

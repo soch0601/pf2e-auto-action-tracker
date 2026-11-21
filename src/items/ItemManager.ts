@@ -1,5 +1,4 @@
-import { findCombatantByTokenOrActor } from "../foundryCompat.ts";
-import { isCurrentUserActiveGM } from "../foundryCompat.ts";
+import { findCombatantByTokenOrActor, isCurrentUserActiveGM } from "../foundryCompat.ts";
 import { recentIntent } from "../globals.ts";
 import { ActionManager } from "../ActionManager.ts";
 import { enqueueAction } from "../actionQueue.ts";
@@ -41,7 +40,7 @@ export class ItemManager {
         }
     }
 
-    public static async handleUpdateItem(item: any, updateData: any) {
+    public static handleUpdateItem(item: any, updateData: any) {
         if (!isCurrentUserActiveGM()) return;
         if (item.type !== "condition" && item.type !== "effect") return;
 
@@ -59,7 +58,7 @@ export class ItemManager {
         }
     }
 
-    public static async handleDeleteItem(item: any) {
+    public static handleDeleteItem(item: any) {
         if (!isCurrentUserActiveGM()) return;
         if (item.type !== "condition" && item.type !== "effect") return;
 

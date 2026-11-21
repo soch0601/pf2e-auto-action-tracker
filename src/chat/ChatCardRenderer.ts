@@ -21,7 +21,7 @@ export class ChatCardRenderer {
             const btnClasses = btn.className;
 
             this.handleSustainMessageItemInjection(messageId);
-            await this.handleItemStateCapture(btn, action);
+            this.handleItemStateCapture(btn, action);
 
             const lowerAction = action?.toLowerCase() || "";
             const isApplyButton =
@@ -66,7 +66,7 @@ export class ChatCardRenderer {
         }
     }
 
-    private static async handleItemStateCapture(btn: HTMLButtonElement, action: string | undefined) {
+    private static handleItemStateCapture(btn: HTMLButtonElement, action: string | undefined) {
         if (!action) return;
         if (action.includes('use') || action.includes('consume') || action.includes('activate') || action.includes('cast')) {
             const itemId = btn.dataset.itemId ||

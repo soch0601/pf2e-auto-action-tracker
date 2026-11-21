@@ -158,13 +158,13 @@ export class ActionManager {
      * Handle end of turn shenanigans, including decrement stunned.  Per RAW in PF2E - this should be done at the
      * beginning of the turn.  But done at the end for user's visual confirmation
      */
-    static async handleEndOfTurn(combatant: CombatantPF2e) {
+    static handleEndOfTurn(combatant: CombatantPF2e) {
         const actor = (combatant as any).actor;
         if (!actor) return;
 
         // Check for underspend to alert the player they had actions left
         const log = this.getActions(combatant);
-        await this.checkUnderSpend(combatant, log);
+        this.checkUnderSpend(combatant, log);
 
         // Reset all movement history for the next round to ensure a clean state
         MovementHistoryService.broadcastReset();
@@ -242,7 +242,7 @@ export class ActionManager {
             } else if (this.getEntryCost(action, currentLog) > 0) {
                 // Sequence Broken
                 openEntry.ComplexActionState = ComplexActionEngine.complete(openEntry.ComplexActionState, action.msgId);
-                await AlertService.triggerAlert(c.actor, "Sequence Broken", `Cancelled ${openEntry.label}.`, 'whisperComplexAction');
+                AlertService.triggerAlert(c.actor, "Sequence Broken", `Cancelled ${openEntry.label}.`, 'whisperComplexAction');
                 // Sequence broken, reset history
                 if (tokenId) MovementHistoryService.resetCapturedHistory(tokenId);
             }
@@ -299,7 +299,7 @@ export class ActionManager {
                 // Promote the edited action to the top-level log
                 currentLog.push({ ...subAction, ...updates });
 
-                await AlertService.triggerAlert(
+                AlertService.triggerAlert(
                     c.actor,
                     "Sequence Broken",
                     `Action limits exceeded for ${parentEntry.slug}. Item separated.`,
@@ -741,7 +741,7 @@ export class ActionManager {
     /**
      * Determine if there are any remaining actions for a user this round.
      */
-    private static async checkUnderSpend(combatant: CombatantPF2e, log: readonly ActionLogEntry[]) {
+    private static checkUnderSpend(combatant: CombatantPF2e, log: readonly ActionLogEntry[]) {
         const c = combatant as any;
         const spent = log.filter(e => e.type === 'action' || e.type === 'system').reduce((acc, e) => acc + this.getEntryCost(e, log), 0);
         const actor = c.actor as ActorPF2e | undefined;
@@ -750,7 +750,7 @@ export class ActionManager {
         const max = ActorManager.getMaxActions(combatant);
         if (spent < max) {
             const diff = max - spent;
-            await AlertService.triggerAlert(actor, "Economy", `**${c.name}** ended turn with **${diff}** actions/bonus actions remaining.`, 'whisperUnderspend');
+            AlertService.triggerAlert(actor, "Economy", `**${c.name}** ended turn with **${diff}** actions/bonus actions remaining.`, 'whisperUnderspend');
         }
     }
 
