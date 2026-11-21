@@ -50,15 +50,21 @@ export class ChatManager {
                         }
                     }
                     if (actorUuid) {
+                        logInfo(`ChatManager | handleChatPayload: Linking damage-taken message ${message.id} to origin action ${originMsgId} on combatant ${combatantId}`);
                         await ActionManager.linkDamageApplicationToAction(targetCombatant, originMsgId, actorUuid, message.id);
                     }
                 }
+            } else {
+                logInfo(`ChatManager | handleChatPayload: Ignoring damage-taken message ${message.id} (no damageOrigin flag)`);
             }
             return;
         }
 
         const combatant = findCombatantByMessage((game as any).combat, message);
-        if (!combatant) return;
+        if (!combatant) {
+            logInfo(`ChatManager | handleChatPayload: No combatant found in active combat for message ${message.id}, ignoring.`);
+            return;
+        }
         const c = combatant as any;
 
         const speaker = message.speaker || {};
@@ -82,6 +88,7 @@ export class ChatManager {
 
             const isSpellAttack = message.item?.type === "spell" || slug.toLowerCase().includes("spell");
             if (isSpellAttack) {
+                logInfo(`ChatManager | handleChatPayload: Message ${message.id} is a spell attack roll (slug: ${slug}). Linking to parent spell cast instead of counting a new action.`);
                 const originUuid = pf2eFlags.origin?.uuid;
 
                 const queue = (c.getFlag(SCOPE, 'pendingAttackQueue') as string[]) || [];
@@ -106,6 +113,7 @@ export class ChatManager {
 
         const originId = await this.maybeGetOriginMsgId(message);
         if (originId) {
+            logInfo(`ChatManager | handleChatPayload: Message ${message.id} is a damage roll linked to origin action ${originId}. Linking without counting a new action.`);
             await this.linkDamageRollToAction(combatant, originId, message.id);
             return;
         }
@@ -124,6 +132,7 @@ export class ChatManager {
                 return;
             }
 
+            logInfo(`ChatManager | handleChatPayload: Message ${message.id} is a reroll of ${oldMsgId}. Updating existing action.`);
             const spentHeroPoint = message.getFlag(SCOPE, "heroPointSpent");
             await ActionManager.editAction(combatant, oldMsgId, {
                 msgId: message.id,
@@ -353,8 +362,20 @@ export class ChatManager {
             Detectors.GenericActionDetector
         ];
 
+        const pf2eFlags = message.flags?.pf2e;
+        const isExplicitUse = !!message.flags?.[SCOPE]?.isExplicitUse;
+        const originUuid = pf2eFlags?.origin?.uuid;
+        const originType = pf2eFlags?.origin?.type;
+        const contextType = pf2eFlags?.context?.type;
+        const contextAction = pf2eFlags?.context?.action;
+
+        logInfo(
+            `ChatManager | Evaluating message ${message.id} | item: "${message.item?.name || "none"}" (type: ${message.item?.type || originType || "none"}, slug: ${message.item?.slug || pf2eFlags?.origin?.slug || "none"}) | isExplicitUse: ${isExplicitUse} | context.type: ${contextType || "none"} | context.action: ${contextAction || "none"} | origin.uuid: ${originUuid || "none"}`
+        );
+
         for (const Detector of activeDetectors) {
             if (Detector.shouldBreak(message)) {
+                logInfo(`ChatManager | [${Detector.id}] -> shouldBreak=true (ignoring message ${message.id} as non-action/noise or link-to-chat without explicit use)`);
                 return undefined;
             }
 
@@ -362,6 +383,21 @@ export class ChatManager {
                 const details: IActionDetails = Detector.getDetails(message);
                 const isPublic = message.whisper.length === 0 || message.whisper.includes(game.user.id);
                 const finalLabel = isPublic ? details.label : "Secret Action";
+
+                logInfo(
+                    `ChatManager | [${Detector.id}] -> matched message ${message.id}! Details:`,
+                    {
+                        slug: details.slug,
+                        label: details.label,
+                        cost: typeof details.cost === "function" ? "<dynamic>" : details.cost,
+                        category: Detector.type,
+                        isReaction: details.isReaction,
+                        isMapRelevant: details.isMapRelevant,
+                        mapProfile: details.mapProfile,
+                        rank: details.rank,
+                        isQuickenedEligible: details.isQuickenedEligible
+                    }
+                );
 
                 return {
                     cost: details.cost ?? 0,
@@ -374,9 +410,12 @@ export class ChatManager {
                     rank: details.rank,
                     isQuickenedEligible: details.isQuickenedEligible
                 };
+            } else {
+                logInfo(`ChatManager | [${Detector.id}] -> isType=false`);
             }
         }
 
+        logInfo(`ChatManager | No detector matched message ${message.id}. Message ignored.`);
         return undefined;
     }
 
@@ -395,17 +434,22 @@ export class ChatManager {
             }
         }
 
-        if (!actorUuid) return;
+        if (!actorUuid) {
+            logInfo("ChatManager | preCreateChatMessage: No actorUuid resolved from speaker/message, skipping flag injection.", speaker);
+            return;
+        }
 
         // 1. Spell Slots
         const spellSlot = ChatPendingState.getPendingSpellSlot(actorUuid, tokenId);
         if (spellSlot) {
+            logInfo(`ChatManager | preCreateChatMessage: Attached pending spellSlotUsage for ${actorUuid}:`, spellSlot);
             message.updateSource({ flags: { [SCOPE]: { spellSlotUsage: spellSlot } } } as any);
         }
 
         // 2. Item Usage
         const itemUsage = ChatPendingState.getPendingItemUsage(actorUuid, tokenId);
         if (itemUsage) {
+            logInfo(`ChatManager | preCreateChatMessage: Attached pending itemUsage for ${actorUuid} (uuid: ${itemUsage.uuid})`);
             message.updateSource({ flags: { [SCOPE]: { itemUsage: itemUsage } } } as any);
         }
 
@@ -414,6 +458,7 @@ export class ChatManager {
         if (pf2eFlags?.context?.type === "damage-taken") {
             const origin = ChatPendingState.getPendingDamageOrigin(actorUuid);
             if (origin) {
+                logInfo(`ChatManager | preCreateChatMessage: Attached pending damageOrigin for ${actorUuid}:`, origin);
                 message.updateSource({ flags: { [SCOPE]: { damageOrigin: origin } } } as any);
             }
         }
@@ -422,6 +467,7 @@ export class ChatManager {
         if (pf2eFlags?.context?.isReroll) {
             const isHeroPoint = ChatPendingState.getPendingReroll(actorUuid);
             if (isHeroPoint) {
+                logInfo(`ChatManager | preCreateChatMessage: Attached heroPointSpent=true for reroll on ${actorUuid}`);
                 message.updateSource({ flags: { [SCOPE]: { heroPointSpent: true } } } as any);
             }
         }
@@ -434,11 +480,18 @@ export class ChatManager {
         const messageItemId = message.flags?.[SCOPE]?.sustainedItemId || originUuid?.split('.').pop();
 
         if (intentItemId && (intentItemId === messageItemId || !messageItemId)) {
+            logInfo(
+                `ChatManager | preCreateChatMessage: Matched explicit use intent! (intentItemId: ${intentItemId}, messageItemId: ${messageItemId || "none"}, tokenKey: ${tokenKey || "none"}, actorKey: ${actorKey || "none"}) -> setting isExplicitUse=true`
+            );
             message.updateSource({
                 [`flags.${SCOPE}.isExplicitUse`]: true
             });
             if (tokenKey) recentIntent.delete(tokenKey);
             if (actorKey) recentIntent.delete(actorKey);
+        } else {
+            logInfo(
+                `ChatManager | preCreateChatMessage: No explicit use intent matched (intentItemId: ${intentItemId || "none"}, messageItemId: ${messageItemId || "none"}, tokenKey: ${tokenKey || "none"}, actorKey: ${actorKey || "none"}) -> isExplicitUse remains false`
+            );
         }
     }
 }

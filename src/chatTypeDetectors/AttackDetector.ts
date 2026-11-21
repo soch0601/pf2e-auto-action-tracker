@@ -1,5 +1,6 @@
 import { getCostFromMsgFlavor, getIsReaction, getLabelFromMsgFlavor, getSlugFromMsgFlavor } from "./detectorUtilities.ts";
 import type { IActionDetector, IActionDetails } from "./IActionDetector.ts";
+import { logInfo } from "../logger.ts";
 
 export class AttackDetector {
 
@@ -8,7 +9,11 @@ export class AttackDetector {
 
     static shouldBreak(message: any) {
         // Break if it's just a damage roll for a strike (noise)
-        return !!message.flags?.pf2e?.context?.type?.includes('damage-roll');
+        const isDamageRoll = !!message.flags?.pf2e?.context?.type?.includes('damage-roll');
+        if (isDamageRoll) {
+            logInfo(`AttackDetector | Breaking on message ${message.id}: context.type="${message.flags?.pf2e?.context?.type}" includes "damage-roll"`);
+        }
+        return isDamageRoll;
     }
 
     static isType(message: any) {

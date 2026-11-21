@@ -112,7 +112,10 @@ Hooks.on("createChatMessage", async (message: ChatMessagePF2e) => {
         }
     }
 
-    if (!cId) return;
+    if (!cId) {
+        logInfo(`main | createChatMessage: No active combatant matched for message ${message.id} (speaker: ${JSON.stringify(message.speaker)}), skipping.`);
+        return;
+    }
 
     // Enqueue the chat payload
     enqueueAction(cId, async () => await ChatManager.handleChatPayload(message));

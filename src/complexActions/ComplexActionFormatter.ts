@@ -78,7 +78,16 @@ export class ComplexActionFormatter {
                     }
                     return "";
                 } else {
-                    return actionName;
+                    if (!leaf.satisfied) {
+                        return actionName;
+                    }
+                    const childGoals: string[] = [];
+                    for (const childAction of leaf.childActions) {
+                        if (childAction.ComplexActionState && !childAction.ComplexActionState.completedBy) {
+                            childGoals.push(ComplexActionFormatter.toString(childAction.ComplexActionState));
+                        }
+                    }
+                    return childGoals.join(", ");
                 }
             }
             return "";
@@ -98,14 +107,16 @@ export class ComplexActionFormatter {
                 }
             });
 
-            if (activeChildrenStrings.length === 0) return "";
-            if (activeChildrenStrings.length === 1) return activeChildrenStrings[0];
+            const uniqueStrings = Array.from(new Set(activeChildrenStrings));
+
+            if (uniqueStrings.length === 0) return "";
+            if (uniqueStrings.length === 1) return uniqueStrings[0];
 
             const opNode = n.value.find((v: any) => v.type === 'OPERATOR');
             const foundOp = opNode ? opNode.value : 'AND';
             const connector = (foundOp === 'AND' || foundOp === 'THEN') ? 'and' : 'or';
 
-            const joined = ComplexActionFormatter._joinWithOxford(activeChildrenStrings, connector);
+            const joined = ComplexActionFormatter._joinWithOxford(uniqueStrings, connector);
             return joined;
         }
         return "";

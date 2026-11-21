@@ -2,6 +2,7 @@ import type { IActionDetector } from './IActionDetector.ts';
 import { SCOPE } from '../globals.ts';
 import { getCostFromMsgFlavor, getIsReaction, getLabelFromMsgFlavor, getSlugFromMsgFlavor } from './detectorUtilities.ts';
 import { getActionMapMetadata } from './actionMapMetadata.ts';
+import { logInfo } from '../logger.ts';
 
 export class SpellDetector {
 
@@ -25,15 +26,18 @@ export class SpellDetector {
         ];
 
         if (contextType && spellNoise.includes(contextType)) {
+            logInfo(`SpellDetector | Breaking on message ${message.id}: context.type="${contextType}" is secondary spell noise`);
             return true;
         }
 
         // Ignore messages that are explicitly marked as damage rolls
         if (message.flags?.pf2e?.damageRoll) {
+            logInfo(`SpellDetector | Breaking on message ${message.id}: message has flags.pf2e.damageRoll`);
             return true;
         }
 
         if (message.item?.type === 'spell' && !isExplicitUse) {
+            logInfo(`SpellDetector | Breaking on message ${message.id}: spell "${message.item?.name}" was posted to chat without isExplicitUse=true (treated as link-to-chat, not cast)`);
             return true;
         }
 

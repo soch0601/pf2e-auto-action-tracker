@@ -1,6 +1,6 @@
 import { ChatManager } from "./chat/ChatManager.ts";
 import { ItemManager } from "./items/ItemManager.ts";
-import { logWarn } from "./logger.ts";
+import { logInfo, logWarn } from "./logger.ts";
 import { recentIntent } from "./globals.ts";
 import { findCombatantByMessage } from "./foundryCompat.ts";
 import { SCOPE } from "./globals.ts";
@@ -42,6 +42,7 @@ export class WrapperManager {
             if (message?.id) {
                 const combatant = findCombatantByMessage(game.combat, message);
                 if (combatant?.id) {
+                    logInfo(`WrapperManager | Reroll detected for message ${message.id} (combatant: ${combatant.id}, isHeroPoint: ${isHeroPoint})`);
                     ChatManager.broadcastReroll(combatant.id, message.id);
                 }
                 const actorUuid = message.actor?.uuid;
@@ -68,6 +69,8 @@ export class WrapperManager {
                 if (detectionKey && spell) {
                     recentIntent.set(detectionKey, spell.id);
                 }
+
+                logInfo(`WrapperManager | Spell cast triggered: "${spell?.name}" (id: ${spell?.id}, slug: ${spell?.slug}) by "${actor?.name}" | detectionKey: ${detectionKey} | consume: ${options.consume !== false}`);
 
                 // Enhanced Undo: Store slot info BEFORE the cast to avoid race conditions with the chat hook
                 if (options.consume !== false) {
@@ -153,6 +156,7 @@ export class WrapperManager {
                 const isToMessage = methodName === "toMessage";
 
                 let isUse = !isToMessage;
+                let decisionReason = isToMessage ? "default toMessage (not a use)" : `method "${methodName}" is an explicit use`;
 
                 if (event) {
                     const target = event.target as HTMLElement;
@@ -163,20 +167,30 @@ export class WrapperManager {
                         // toMessage is a link unless there is no dedicated use from frequency (PF2E system) - so count it if needed
                         const requiresUse = ItemManager.itemRequiresExplicitUse(this);
                         isUse = isExplicitAction || (isLinkClick && !requiresUse);
+                        decisionReason = `toMessage with event (isExplicitAction=${isExplicitAction}, isLinkClick=${isLinkClick}, requiresUse=${requiresUse})`;
                     } else if (isLinkClick) {
                         isUse = false;
+                        decisionReason = `${methodName} with event clicked link-to-chat button`;
+                    } else {
+                        decisionReason = `${methodName} with event (isExplicitAction=${isExplicitAction}, isLinkClick=${isLinkClick})`;
                     }
 
                 } else if (isToMessage) {
                     // No event + toMessage.
                     const item = this as any;
                     const type = item.type;
-                    const name = item.name;
 
                     if (["action", "feat"].includes(type)) {
                         isUse = true;
+                        decisionReason = `toMessage without event for item type "${type}" (treated as use)`;
+                    } else {
+                        decisionReason = `toMessage without event for item type "${type}" (treated as link-to-chat)`;
                     }
                 }
+
+                logInfo(
+                    `WrapperManager | Item.${methodName} called for "${this.name}" (id: ${this.id}, slug: ${this.slug}, type: ${this.type}) on actor "${actor.name}" | isUse: ${isUse} (${decisionReason}) | detectionKey: ${detectionKey}`
+                );
 
                 if (detectionKey && isUse) {
                     recentIntent.set(detectionKey, this.id);

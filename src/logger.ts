@@ -5,7 +5,12 @@ import { SettingsManager } from "./SettingsManager.ts";
  * Eventually, this can be hooked to a Module Setting.
  */
 const isDebugEnabled = () => {
-    return SettingsManager.get('debugMode') ?? false;
+    try {
+        if (typeof game === "undefined" || !(game as any).settings?.get) return false;
+        return SettingsManager.get('debugMode') ?? false;
+    } catch {
+        return false;
+    }
 };
 
 const modNameString = "PF2E Auto Action Tracker |"
