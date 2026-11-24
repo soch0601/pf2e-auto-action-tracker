@@ -6,6 +6,8 @@ import { MovementManager } from "../MovementManager.ts";
 import { MovementHistoryService } from "../MovementHistoryService.ts";
 import { ChatCardRenderer } from "../chat/ChatCardRenderer.ts";
 import { ChatManager } from "../chat/ChatManager.ts";
+import { findCombatantById } from "../foundryCompat.ts";
+import { SummonManager } from "../summons/index.ts";
 
 export class SocketReceiver {
     static initHandlers(socket: any) {
@@ -31,6 +33,8 @@ export class SocketReceiver {
         socket.register("completeComplexAction", this.handleCompleteComplexActionRequest.bind(this));
         // Register Queue Reroll (Player -> GM)
         socket.register("queueReroll", this.handleQueueRerollRequest.bind(this));
+        // Register Toggle Minion Grant (Player -> GM)
+        socket.register("toggleMinionGrant", this.handleToggleMinionGrantRequest.bind(this));
     }
 
     private static async handleSustainRequest(data: any) {
@@ -40,24 +44,25 @@ export class SocketReceiver {
                 choice: data.choice,
                 itemName: data.itemName,
                 combatantId: data.combatantId,
-                itemId: data.itemId
+                itemId: data.itemId,
+                minionTokenId: data.minionTokenId
             });
         }
 
         const actor = (game.actors as any).get(data.actorId);
         if (actor) {
             if (data.choice === "yes") {
-                await ChatCardRenderer.processSustainYes(actor, data.itemId, data.itemName, data.combatantId, data.messageId);
+                await ChatCardRenderer.processSustainYes(actor, data.itemId, data.itemName, data.combatantId, data.messageId, data.minionTokenId);
             } else {
-                const combatant = game.combat?.combatants.get(data.combatantId);
-                await ChatCardRenderer.processSustainNo(actor, data.itemId, combatant);
+                const combatant = findCombatantById(game.combat, data.combatantId);
+                await ChatCardRenderer.processSustainNo(actor, data.itemId, combatant, data.minionTokenId);
             }
         }
     }
 
     private static async handleMovementRequest(data: any) {
         if (!(game as any).user.isGM) return;
-        const combatant = game.combat?.combatants.get(data.combatantId);
+        const combatant = findCombatantById(game.combat, data.combatantId);
         const tokenDoc = game.scenes.active?.tokens.get(data.tokenId);
         if (!combatant || !tokenDoc) return;
 
@@ -66,7 +71,7 @@ export class SocketReceiver {
 
     private static async handleRemoveActionRequest(data: any) {
         if (!(game as any).user.isGM) return;
-        const combatant = game.combat?.combatants.get(data.combatantId);
+        const combatant = findCombatantById(game.combat, data.combatantId);
         if (!combatant) return;
 
         await ActionManager.removeAction(combatant as any, data.msgId, data.isRecursive);
@@ -74,7 +79,7 @@ export class SocketReceiver {
 
     private static async handleAddActionRequest(data: any) {
         if (!(game as any).user.isGM) return;
-        const combatant = game.combat?.combatants.get(data.combatantId);
+        const combatant = findCombatantById(game.combat, data.combatantId);
         if (!combatant) return;
 
         await ActionManager.addAction(combatant as any, data.action);
@@ -82,7 +87,7 @@ export class SocketReceiver {
 
     private static async handleEditActionRequest(data: any) {
         if (!(game as any).user.isGM) return;
-        const combatant = game.combat?.combatants.get(data.combatantId);
+        const combatant = findCombatantById(game.combat, data.combatantId);
         if (!combatant) return;
 
         await ActionManager.editAction(combatant as any, data.msgId, data.updates);
@@ -90,10 +95,19 @@ export class SocketReceiver {
 
     private static async handleCompleteComplexActionRequest(data: any) {
         if (!(game as any).user.isGM) return;
-        const combatant = game.combat?.combatants.get(data.combatantId);
+        const combatant = findCombatantById(game.combat, data.combatantId);
         if (!combatant) return;
 
         await ActionManager.completeComplexAction(combatant as any, data.action);
+    }
+
+    private static async handleToggleMinionGrantRequest(data: any) {
+        if (!(game as any).user.isGM) return;
+        if (!SummonManager.isEnabled()) return;
+        const combatant = findCombatantById(game.combat, data.combatantId);
+        if (!combatant) return;
+
+        await SummonManager.toggleManualGrant(combatant);
     }
 
     private static handleQueueRerollRequest(data: any) {
@@ -115,7 +129,11 @@ export class SocketReceiver {
             const combatant = game.combat?.combatants.get(data.combatantId);
             if (combatant) {
                 const logs = ActionManager.getFlattenedActions(combatant as any);
-                const sustainAction = logs.find(log => log.slug === "sustain-a-spell" && log.sustainItem?.id === data.itemId);
+                const sustainAction = logs.find(log =>
+                    log.slug === "sustain-a-spell" &&
+                    log.sustainItem?.id === data.itemId &&
+                    (!data.minionTokenId || log.sustainItem?.minionTokenId === data.minionTokenId)
+                );
                 if (sustainAction) {
                     await ActionManager.removeAction(combatant as any, sustainAction.msgId);
                 }

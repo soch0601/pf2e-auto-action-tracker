@@ -9,13 +9,16 @@ export class MovementHistoryService {
     // Tracks the distance covered in the current movement interaction to calculate deltas
     private static _lastInteractionDistance = new Map<string, number>();
     private static _lastCoords = new Map<string, any[]>();
+    // Turn-cumulative coordinate stack for tokens without a native combatant._movementHistory (e.g. summoned minions)
+    // This does NOT reset on Strike, only on turn start/end, so Move -> Strike -> Ctrl+Z can detect the rollback!
+    private static _turnCoords = new Map<string, any[]>();
 
     static broadcastReset(tokenId?: string) {
         SocketSender.broadcastResetMovementHistory(tokenId);
     }
 
     /**
-     * Resets the manual history capture for a token.
+     * Resets the manual history capture for a token (called on non-move actions like Strike).
      */
     static resetCapturedHistory(tokenId?: string) {
         if (tokenId) {
@@ -28,7 +31,27 @@ export class MovementHistoryService {
             MovementHistoryService._lastInteractionDistance.clear();
             MovementHistoryService._historyLengths.clear();
             MovementHistoryService._lastCoords.clear();
+            MovementHistoryService._turnCoords.clear();
         }
+    }
+
+    /**
+     * Resets the turn-cumulative coordinate stack for a token (called only at start/end of turn or token delete).
+     */
+    static resetTurnCoords(tokenId?: string) {
+        if (tokenId) {
+            MovementHistoryService._turnCoords.delete(tokenId);
+        } else {
+            MovementHistoryService._turnCoords.clear();
+        }
+    }
+
+    static getTurnCoords(tokenId: string): any[] | undefined {
+        return MovementHistoryService._turnCoords.get(tokenId);
+    }
+
+    static setTurnCoords(tokenId: string, coords: any[]) {
+        MovementHistoryService._turnCoords.set(tokenId, coords);
     }
 
     /**

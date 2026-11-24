@@ -221,6 +221,7 @@ export class ChatCardRenderer {
                 messageId: message.id,
                 combatantId: choiceData.combatantId || message.flags?.[SCOPE]?.combatantId,
                 itemId: choiceData.itemId || message.flags?.[SCOPE]?.itemId,
+                minionTokenId: (choiceData as any).minionTokenId || message.flags?.[SCOPE]?.minionTokenId,
                 choice: choiceData.choice
             };
 
@@ -230,7 +231,11 @@ export class ChatCardRenderer {
                     const combatant = findCombatantById(game.combat, cId);
                     if (combatant) {
                         const logs = ActionManager.getFlattenedActions(combatant);
-                        const sustainAction = logs.find(log => log.slug === "sustain-a-spell" && log.sustainItem?.id === payload.itemId);
+                        const sustainAction = logs.find(log =>
+                            log.slug === "sustain-a-spell" &&
+                            log.sustainItem?.id === payload.itemId &&
+                            (!payload.minionTokenId || log.sustainItem?.minionTokenId === payload.minionTokenId)
+                        );
                         if (sustainAction) {
                             await ActionManager.removeAction(combatant, sustainAction.msgId);
                         }
@@ -248,7 +253,7 @@ export class ChatCardRenderer {
         sustainButtons.forEach((button) => {
             button.addEventListener("click", async (event) => {
                 event.preventDefault();
-                const { action, actorId, itemId, itemName, combatantId } = button.dataset;
+                const { action, actorId, itemId, itemName, combatantId, minionTokenId } = button.dataset;
 
                 const actor = (game.actors as any).get(actorId ?? "");
                 if (!actor || (!actor.isOwner && !game.user.isGM)) return;
@@ -260,17 +265,18 @@ export class ChatCardRenderer {
                     combatantId: combatantId,
                     itemId: itemId || "",
                     itemName: itemName || "",
+                    minionTokenId: minionTokenId || undefined,
                     choice: choice
                 };
 
                 if (game.user.isGM) {
                     if (choice === "yes") {
-                        await this.processSustainYes(actor, itemId || "", itemName || "", combatantId, message.id);
+                        await this.processSustainYes(actor, itemId || "", itemName || "", combatantId, message.id, minionTokenId || undefined);
                     } else {
                         const combatant = findCombatantById(game.combat, combatantId);
-                        await this.processSustainNo(actor, itemId || "", combatant);
+                        await this.processSustainNo(actor, itemId || "", combatant, minionTokenId || undefined);
                     }
-                    await (message as any).setFlag(SCOPE, "sustainChoice", { choice, itemName, combatantId, itemId });
+                    await (message as any).setFlag(SCOPE, "sustainChoice", { choice, itemName, combatantId, itemId, minionTokenId });
                 } else {
                     SocketSender.emitSustainChoice(payload);
                 }
@@ -278,7 +284,7 @@ export class ChatCardRenderer {
         });
     }
 
-    public static async processSustainYes(actor: any, itemId: string, itemName: string, combatantId?: string, reminderMessageId?: string) {
+    public static async processSustainYes(actor: any, itemId: string, itemName: string, combatantId?: string, reminderMessageId?: string, minionTokenId?: string) {
         const item = actor.items.get(itemId);
         const displayName = itemName || item?.name || "Action";
         const combatant = findCombatantById(game.combat, combatantId);
@@ -324,6 +330,7 @@ export class ChatCardRenderer {
                     isSustainAutomation: true,
                     sustainedItemId: itemId,
                     sustainedItemName: displayName,
+                    sustainedMinionTokenId: minionTokenId,
                     reminderMessageId: reminderMessageId
                 }
             }
@@ -349,11 +356,11 @@ export class ChatCardRenderer {
         return "";
     }
 
-    public static async processSustainNo(actor: any, itemId: string, combatant?: any) {
+    public static async processSustainNo(actor: any, itemId: string, combatant?: any, minionTokenId?: string) {
         const targetCombatant = combatant || findCombatantByTokenOrActor(game.combat, null, actor.id);
 
         if (targetCombatant) {
-            await ActionManager.stopSustaining(targetCombatant, itemId);
+            await ActionManager.stopSustaining(targetCombatant, itemId, minionTokenId);
         }
 
         const item = actor.items.get(itemId);

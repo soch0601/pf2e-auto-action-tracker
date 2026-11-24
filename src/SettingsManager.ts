@@ -118,6 +118,23 @@ export class SettingsManager {
             default: true
         });
 
+        settings.register(SCOPE, "headerSummons", {
+            name: "PF2E_ACTION_TRACKER.Settings.Header.Summons",
+            scope: "world",
+            config: true,
+            type: Boolean,
+            default: false
+        });
+
+        settings.register(SCOPE, "enableSummonsTracking", {
+            name: "PF2E_ACTION_TRACKER.Settings.EnableSummonsTracking.Name",
+            hint: getHint("EnableSummonsTracking", "PF2E_ACTION_TRACKER.Settings.EnableSummonsTracking.Hint"),
+            scope: "world",
+            config: true,
+            type: Boolean,
+            default: false
+        });
+
         settings.register(SCOPE, "headerAdvanced", {
             name: "PF2E_ACTION_TRACKER.Settings.Header.Advanced",
             scope: "world",
@@ -143,6 +160,23 @@ export class SettingsManager {
             type: Boolean,
             default: false
         });
+    }
+
+    /**
+     * Checks if PF2e Summons Assistant module is installed and active
+     */
+    static isSummonsAssistantActive(): boolean {
+        return Boolean((game as any)?.modules?.get?.("pf2e-summons-assistant")?.active);
+    }
+
+    /**
+     * Checks if Summons Tracking is both enabled in settings AND the PF2e Summons Assistant module is active.
+     */
+    static isSummonsTrackingEnabled(): boolean {
+        if (!this.isSummonsAssistantActive()) return false;
+        const settings = (game as any)?.settings;
+        if (!settings?.settings?.has?.(`${SCOPE}.enableSummonsTracking`)) return false;
+        return Boolean(settings.get(SCOPE, "enableSummonsTracking"));
     }
 
     /**
@@ -176,7 +210,7 @@ export class SettingsManager {
         if (!moduleTab.length) return;
 
         // Find our header settings and style them
-        const headers = ["headerAlerts", "headerInterface", "headerAdvanced"];
+        const headers = ["headerAlerts", "headerInterface", "headerSummons", "headerAdvanced"];
 
         headers.forEach(headerKey => {
             const input = moduleTab.find(`input[name="${SCOPE}.${headerKey}"]`);
@@ -249,6 +283,27 @@ export class SettingsManager {
                 $notes.text((game as any).i18n.localize(roleKey));
             }
         });
+
+        // Disable enableSummonsTracking if PF2e Summons Assistant module is not active
+        const enableSummonsInput = moduleTab.find(`input[name="${SCOPE}.enableSummonsTracking"]`);
+        if (enableSummonsInput.length) {
+            const isSummonsModActive = this.isSummonsAssistantActive();
+            const summonsRow = enableSummonsInput.closest(".form-group");
+            if (!isSummonsModActive) {
+                enableSummonsInput.prop("checked", false);
+                enableSummonsInput.prop("disabled", true);
+                summonsRow.addClass("action-tracker-disabled-row");
+                summonsRow.css({
+                    "opacity": "0.5",
+                    "pointer-events": "none"
+                });
+                const $notes = summonsRow.find(".notes, .hint");
+                const disabledKey = "PF2E_ACTION_TRACKER.Settings.EnableSummonsTracking.DisabledHint";
+                if ($notes.length && (game as any).i18n?.has?.(disabledKey)) {
+                    $notes.text((game as any).i18n.localize(disabledKey));
+                }
+            }
+        }
     }
 
     /**

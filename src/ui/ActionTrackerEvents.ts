@@ -3,6 +3,9 @@ import { MovementManager } from "../MovementManager.ts";
 import { DBManager } from "../DBManager.ts";
 import { logWarn } from "../logger.ts";
 import { ActionDialogs } from "./ActionDialogs.ts";
+import { findCombatantById, isCurrentUserActiveGM } from "../foundryCompat.ts";
+import { SummonManager } from "../summons/index.ts";
+import { SocketSender } from "../sockets/SocketSender.ts";
 
 export class ActionTrackerEvents {
     /**
@@ -42,16 +45,27 @@ export class ActionTrackerEvents {
     }
 
     /**
+     * Resolves the combatantId (or virtual minion combatantId) from a target element inside a tracker container.
+     */
+    static resolveCombatantIdFromTarget(target: HTMLElement): string | undefined {
+        const container = target.closest('.pf2e-auto-action-tracker-container') as HTMLElement | null;
+        if (container?.dataset.combatantId) {
+            return container.dataset.combatantId;
+        }
+        return (container?.parentElement as HTMLElement)?.closest('[data-combatant-id]')?.getAttribute('data-combatant-id') ?? undefined;
+    }
+
+    /**
      * Checks if the current user has permission to modify this specific combatant's tracker.
      */
     static canUserModify(target: HTMLElement): boolean {
-        const combatantId = (target.closest('.pf2e-auto-action-tracker-container')?.parentElement as HTMLElement)?.closest('[data-combatant-id]')?.getAttribute('data-combatant-id');
-        const combatant = (game as any).combat?.combatants.get(combatantId);
+        const combatantId = this.resolveCombatantIdFromTarget(target);
+        const combatant = findCombatantById((game as any).combat, combatantId);
 
         if (!combatant) return false;
 
-        // Permission Logic: Is GM or owns the Actor
-        const isOwner = combatant.actor?.isOwner;
+        // Permission Logic: Is GM or owns the Actor (or owns the controller actor for a minion)
+        const isOwner = Boolean(combatant.actor?.isOwner || combatant.controllerCombatant?.actor?.isOwner);
         const isGM = (game as any).user.isGM;
 
         if (!isOwner && !isGM) {
@@ -68,8 +82,19 @@ export class ActionTrackerEvents {
         const btn = target.classList.contains('action-icon') ? target : target.parentElement;
         if (!btn) return;
 
-        const combatantId = btn.dataset.combatantId;
-        const combatant = (game.combat as any)?.combatants.get(combatantId);
+        const combatantId = btn.dataset.combatantId || this.resolveCombatantIdFromTarget(btn);
+        const combatant = findCombatantById((game as any).combat, combatantId);
+
+        if (btn.classList.contains('grant-button')) {
+            if (combatant && SummonManager.isEnabled()) {
+                if (isCurrentUserActiveGM()) {
+                    await SummonManager.toggleManualGrant(combatant);
+                } else if (combatantId) {
+                    await SocketSender.sendToggleMinionGrant(combatantId);
+                }
+            }
+            return;
+        }
 
         if (btn.classList.contains('finish-button')) {
             await this.handleFinishButtonClick(btn, combatant);
@@ -155,13 +180,16 @@ export class ActionTrackerEvents {
         const msgId = target.dataset.msgId;
 
         const index = parseInt(target.dataset.index || "-1");
-        const combatantId = (target.closest('.pf2e-auto-action-tracker-container')?.parentElement as HTMLElement)?.closest('[data-combatant-id]')?.getAttribute('data-combatant-id');
-        const combatant = (game.combat as any)?.combatants.get(combatantId || "") as any | undefined;
+        const combatantId = this.resolveCombatantIdFromTarget(target);
+        const combatant = findCombatantById((game as any).combat, combatantId) as any | undefined;
 
         if (!combatant) return;
 
         // Permissions check
-        const canUndo = game.user.isGM || combatant.actor?.testUserPermission(game.user, "OWNER");
+        const canUndo =
+            game.user.isGM ||
+            combatant.actor?.testUserPermission?.(game.user, "OWNER") ||
+            combatant.controllerCombatant?.actor?.testUserPermission?.(game.user, "OWNER");
         if (!canUndo) return ui.notifications.warn("Permission denied.");
 
         // Determine if we are allowed to undo this specific type

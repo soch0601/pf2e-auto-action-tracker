@@ -15,6 +15,7 @@ import { SocketSender } from "../sockets/SocketSender.ts";
 import { ActionManager } from "../ActionManager.ts";
 import { DamageCombinator } from "../damageCombinator.ts";
 import { getSlugFromMsgFlavor } from "../chatTypeDetectors/detectorUtilities.ts";
+import { SummonManager } from "../summons/index.ts";
 
 type CombatantId = string;
 
@@ -142,11 +143,11 @@ export class ChatManager {
         }
 
         // Delegate detection and metadata extraction to Parser
-        let sustainItem: { id: string, name: string } | undefined;
+        let sustainItem: { id: string, name: string, minionTokenId?: string } | undefined;
         if (Detectors.SustainDetector.isSustainMessage(message)) {
-            const { itemId, itemName } = Detectors.SustainDetector.getSustainMetadata(message);
+            const { itemId, itemName, minionTokenId } = Detectors.SustainDetector.getSustainMetadata(message);
             if (itemId) {
-                sustainItem = { id: itemId, name: itemName };
+                sustainItem = { id: itemId, name: itemName, ...(minionTokenId ? { minionTokenId } : {}) };
             }
         }
 
@@ -180,7 +181,7 @@ export class ChatManager {
             await ActionManager.editAction(combatant, message.id, update);
         } else {
             // 1. Determine if it is a reaction based on the parser OR the turn state
-            const isActiveTurn = (game as any).combat.combatant?.id === c.id;
+            const isActiveTurn = SummonManager.isActiveTurnForCombatant((game as any).combat, combatant);
             const type = (data.isReaction || !isActiveTurn) ? 'reaction' : 'action';
 
             // 2. Add the action

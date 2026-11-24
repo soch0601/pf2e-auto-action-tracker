@@ -3,6 +3,7 @@ import type { ActorPF2e, ConditionPF2e, CombatantPF2e } from "module-helpers";
 import { type ActionLogEntry, getEntryCost } from "./ActionLogTypes.ts";
 import { AddActionsLibrary } from "./addActionsData/AddActionsLibrary.ts";
 import type { ActionSlot } from "./addActionsData/types.d.ts";
+import { SummonManager } from "./summons/index.ts";
 
 interface TurnSnapshot {
     isQuickened: boolean;
@@ -39,11 +40,18 @@ export class ActorManager {
     }
 
     /**
-     * Helper to get the true integer value of a condition even if suppressed
+     * Helper to get the true integer value of a condition even if suppressed (or inMemoryOnly via actor.conditions)
      */
     static getConditionValue(actor: ActorPF2e, slug: string): number {
-        const item = actor.items.find((i: any): i is ConditionPF2e => i.slug === slug);
-        return item?.value ?? 0;
+        const item =
+            (actor as any).itemTypes?.condition?.find?.((i: any) => i.slug === slug) ??
+            actor.items?.find?.((i: any): i is ConditionPF2e => i.slug === slug) ??
+            (actor as any).conditions?.bySlug?.(slug, { active: true })?.[0] ??
+            (actor as any).conditions?.bySlug?.(slug)?.[0];
+        if (typeof item?.value === "number") return item.value;
+        if (typeof (item as any)?.system?.value?.value === "number") return (item as any).system.value.value;
+        if (slug === "slowed" && actor.hasCondition?.("slowed")) return 1;
+        return 0;
     }
 
     /**
@@ -101,7 +109,7 @@ export class ActorManager {
 
         const system = actor.system as any;
         const movement = system.movement;
-        const landTypes = ["stride", "land", "walk"];
+        const landTypes = ["stride", "land", "walk", "travel"];
 
         // Handle newer system versions where it is system.movement
         if (movement && movement.speeds) {
@@ -138,16 +146,26 @@ export class ActorManager {
         const actor = (combatant as any).actor;
         if (!actor) return slots;
 
+        const isMinion = SummonManager.isMinion(combatant);
+
         // 1. Generate Base Slots
         if (type === 'action') {
-            const maxBase = 3;
+            const maxBase = isMinion ? SummonManager.getGrantedActions(combatant) : 3;
             for (let i = 0; i < maxBase; i++) {
                 slots.push({ isBase: true, type: 'action' });
             }
+            // An uncommanded minion (0 base actions) cannot use Quickened or extra actions until commanded
+            if (isMinion && maxBase === 0) {
+                return slots;
+            }
         } else {
-            const maxReactions = (actor.system as any).resources?.reactions?.max || 1;
+            // Minions don't get reactions
+            const maxReactions = isMinion ? 0 : ((actor.system as any)?.resources?.reactions?.max || 1);
             for (let i = 0; i < maxReactions; i++) {
                 slots.push({ isBase: true, type: 'reaction' });
+            }
+            if (isMinion) {
+                return slots;
             }
         }
 

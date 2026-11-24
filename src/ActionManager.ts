@@ -15,6 +15,7 @@ import { AlertService } from "./chat/AlertService.ts";
 import { ChatMessageService } from "./chat/ChatMessageService.ts";
 import { SustainReminderService } from "./chat/SustainReminderService.ts";
 import { SocketSender } from "./sockets/SocketSender.ts";
+import { SummonManager } from "./summons/index.ts";
 
 export class ActionManager {
     private static writeQueues = new Map<string, Promise<any>>();
@@ -148,8 +149,29 @@ export class ActionManager {
         // 4. ATOMIC UPDATE
         await DBManager.updateLogs(combatant, logEntries, true, undefined, {
             [`flags.${SCOPE}.isQuickenedSnapshot`]: isQuickened,
-            [`flags.${SCOPE}.lastOverspendAlert`]: 0
+            [`flags.${SCOPE}.lastOverspendAlert`]: 0,
+            [`flags.${SCOPE}.lastReactionOverspendAlert`]: 0
         });
+
+        // 5. Reset any summoned minions belonging to this combatant (start of turn -> 0 granted actions until Sustained/Commanded)
+        if (SummonManager.isEnabled() && !SummonManager.isMinion(combatant)) {
+            const minions = SummonManager.getSummonedMinionsForCombatant(combatant);
+            for (const minion of minions) {
+                if (minion.tokenId) {
+                    MovementHistoryService.broadcastReset(minion.tokenId);
+                    MovementHistoryService.resetTurnCoords(minion.tokenId);
+                }
+                const minionQuickened = ActorManager.getQuickenedState(minion as any);
+                await DBManager.updateLogs(minion as any, [], true, undefined, {
+                    [`flags.${SCOPE}.isQuickenedSnapshot`]: minionQuickened,
+                    [`flags.${SCOPE}.lastOverspendAlert`]: 0,
+                    [`flags.${SCOPE}.lastReactionOverspendAlert`]: 0,
+                    [`flags.${SCOPE}.grantedActions`]: 0,
+                    [`flags.${SCOPE}.grantedByMsgId`]: null,
+                    [`flags.${SCOPE}.stunnedDecrement`]: 0
+                });
+            }
+        }
 
         await SustainReminderService.checkSustainReminder(c);
     }
@@ -165,6 +187,15 @@ export class ActionManager {
         // Check for underspend to alert the player they had actions left
         const log = this.getActions(combatant);
         this.checkUnderSpend(combatant, log);
+
+        // Also check underspend for any summoned minions that were granted actions this turn
+        if (SummonManager.isEnabled() && !SummonManager.isMinion(combatant)) {
+            const minions = SummonManager.getSummonedMinionsForCombatant(combatant);
+            for (const minion of minions) {
+                const minionLog = this.getActions(minion as any);
+                this.checkUnderSpend(minion as any, minionLog);
+            }
+        }
 
         // Reset all movement history for the next round to ensure a clean state
         MovementHistoryService.broadcastReset();
@@ -281,6 +312,9 @@ export class ActionManager {
 
         currentLog.push(action);
         await DBManager.updateLogs(combatant, currentLog, false);
+        if (SummonManager.isEnabled() && !SummonManager.isMinion(combatant)) {
+            await SummonManager.handleControllerActionAdded(combatant, action);
+        }
     }
 
     /**
@@ -439,6 +473,9 @@ export class ActionManager {
 
             if (logChanged) {
                 await DBManager.updateLogs(combatant, newLog, true, entry?.sustainItem?.id);
+                if (SummonManager.isEnabled() && !SummonManager.isMinion(combatant)) {
+                    await SummonManager.handleControllerActionRemoved(combatant, msgId);
+                }
             }
 
             if (!entry) {
@@ -664,7 +701,17 @@ export class ActionManager {
         await DBManager.updateLogs(combatant, currentLog, true);
     }
 
-    static async stopSustaining(combatant: CombatantPF2e, itemId: string) {
+    static async stopSustaining(combatant: CombatantPF2e, itemId: string, minionTokenId?: string) {
+        if (SummonManager.isEnabled() && minionTokenId) {
+            const minions = SummonManager.getSummonedMinionsForCombatant(combatant);
+            const otherActiveMinionsWithSameItem = minions.filter(
+                m => m.tokenId !== minionTokenId && m.getFlag(SCOPE, "summonedByItemId") === itemId
+            );
+            if (otherActiveMinionsWithSameItem.length > 0) {
+                // Another minion from the same spell itemId is still active; don't delete itemId from sustainData
+                return;
+            }
+        }
         const currentLogs = DBManager.getLog(combatant);
         await DBManager.updateLogs(combatant, currentLogs, true, itemId);
     }
@@ -683,7 +730,7 @@ export class ActionManager {
     static getCurrentMAP(
         combatant: CombatantPF2e
     ): { attackCount: number, penalty: 0 | 2 | 4 | 5 | 6 | 7 | 8 | 10, profile: "standard" | "agile" } {
-        const isActiveTurn = (game as any).combat?.combatant?.id === (combatant as any).id;
+        const isActiveTurn = SummonManager.isActiveTurnForCombatant((game as any).combat, combatant);
         return getCurrentMapStateFromLog(DBManager.getLog(combatant), isActiveTurn);
     }
 
@@ -730,21 +777,24 @@ export class ActionManager {
         const actor = c.actor as ActorPF2e | undefined;
         if (!actor) return;
 
+        // Minions have 0 reaction slots and cannot take reactions, so they never lose a reaction to Stunned/Paralyzed/Slowed
+        if (SummonManager.isMinion(combatant)) return;
+
         const stunnedVal = ActorManager.getConditionValue(actor, "stunned");
         const isParalyzed = actor.hasCondition("paralyzed");
 
         let log = [...DBManager.getLog(combatant)];
         const reactionDrainIndex = log.findIndex(e => e.type === 'reaction' && e.category === 'system' && e.label.includes('Reaction Lost'));
 
-        const needsReactionDrain = isParalyzed || stunnedVal > 0;
+        const maxReactions = ActorManager.getSlots(combatant, 'reaction').length;
+        const needsReactionDrain = (isParalyzed || stunnedVal > 0) && maxReactions > 0;
 
         let changed = false;
 
         if (needsReactionDrain && reactionDrainIndex === -1) {
-            const reactionsSpent = ActorManager.getSlots(combatant, 'reaction').length;
             log.push({
                 type: 'reaction',
-                cost: reactionsSpent,
+                cost: maxReactions,
                 msgId: "System",
                 label: `${isParalyzed ? 'Paralyzed' : 'Stunned'}: Reaction Lost`,
                 isQuickenedEligible: false,
@@ -772,9 +822,10 @@ export class ActionManager {
         if (!actor) return;
 
         const max = ActorManager.getMaxActions(combatant);
-        if (spent < max) {
+        if (max > 0 && spent < max) {
             const diff = max - spent;
-            AlertService.triggerAlert(actor, "Economy", `**${c.name}** ended turn with **${diff}** actions/bonus actions remaining.`, 'whisperUnderspend');
+            const alertActor = SummonManager.getAlertTargetActor(combatant) ?? actor;
+            AlertService.triggerAlert(alertActor, "Economy", `**${c.name || actor.name}** ended turn with **${diff}** actions/bonus actions remaining.`, 'whisperUnderspend');
         }
     }
 

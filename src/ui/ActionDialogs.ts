@@ -1,13 +1,15 @@
 import type { CombatantPF2e } from "module-helpers";
 import { ActionManager } from "../ActionManager.ts";
+import { SummonManager } from "../summons/index.ts";
 
 export class ActionDialogs {
     /**
      * Launched when manual add (+) button is clicked to add an action/reaction manually.
      */
     static async showManualActionDialog(combatant: CombatantPF2e) {
-        const isActiveTurn = (game as any).combat.combatant?.id === (combatant as any).id;
-        const defaultType = isActiveTurn ? "1" : "reaction";
+        const isMinion = SummonManager.isMinion(combatant);
+        const isActiveTurn = SummonManager.isActiveTurnForCombatant((game as any).combat, combatant);
+        const defaultType = (isActiveTurn || isMinion) ? "1" : "reaction";
 
         // DialogV2.wait returns the value returned by the button callback
         const result = await (foundry.applications.api.DialogV2 as any).wait({
@@ -38,7 +40,7 @@ export class ActionDialogs {
                             <option value="1" ${defaultType === "1" ? 'selected' : ''}>1 Action</option>
                             <option value="2">2 Actions</option>
                             <option value="3">3 Actions</option>
-                            <option value="reaction" ${defaultType === "reaction" ? 'selected' : ''}>Reaction</option>
+                            ${!isMinion ? `<option value="reaction" ${defaultType === "reaction" ? 'selected' : ''}>Reaction</option>` : ''}
                         </select>
                     </div>
                 </div>

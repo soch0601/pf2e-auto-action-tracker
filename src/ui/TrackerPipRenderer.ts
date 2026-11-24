@@ -2,6 +2,7 @@ import type { ActionLogEntry } from "../ActionLogTypes.ts";
 import { getForceBarrageInfo } from "../ActionLogTypes.ts";
 import { ActionManager } from "../ActionManager.ts";
 import { ComplexActionEngine } from "../complexActions/ComplexActionEngine.ts";
+import { SummonManager } from "../summons/index.ts";
 import type { CombatantPF2e } from "module-helpers";
 
 export interface PipRenderModel {
@@ -9,18 +10,27 @@ export interface PipRenderModel {
     slot?: any;
     isGold: boolean;
     isOver: boolean;
+    isLocked?: boolean;
     subIdx: number;
     totalCost: number;
 }
 
 export class TrackerPipRenderer {
     private static readonly MAX_PIPS = 6;
+    private static readonly MINION_DEFAULT_PIPS = 2;
     private static readonly CHAR_MAP: Record<string, string> = { "1": "A", "2": "D", "3": "T" };
 
     /**
      * Builds the ordered pip models for all action slots and overspent actions.
+     * For uncommanded minions (0 slots), pads up to 2 locked pips (plus 1 locked gold Quickened pip if quickened)
+     * so the tracker row height/width never jumps when commanded.
      */
-    static buildActionPipModels(actionSlots: any[], overspentActions: ActionLogEntry[]): PipRenderModel[] {
+    static buildActionPipModels(
+        actionSlots: any[],
+        overspentActions: ActionLogEntry[],
+        isMinion: boolean = false,
+        hasQuickenedSnapshot: boolean = false
+    ): PipRenderModel[] {
         const pipsToRender: PipRenderModel[] = [];
 
         for (const slot of actionSlots) {
@@ -31,6 +41,7 @@ export class TrackerPipRenderer {
                     slot,
                     isGold: !slot.isBase,
                     isOver: false,
+                    isLocked: false,
                     subIdx,
                     totalCost: ActionManager.getEntryCost(slot.spentBy)
                 });
@@ -40,6 +51,7 @@ export class TrackerPipRenderer {
                     slot,
                     isGold: !slot.isBase,
                     isOver: false,
+                    isLocked: false,
                     subIdx: 0,
                     totalCost: 1
                 });
@@ -55,9 +67,38 @@ export class TrackerPipRenderer {
                     entry,
                     isGold: false,
                     isOver: true,
+                    isLocked: false,
                     subIdx: assignedPips + i,
                     totalCost: totalCost
                 });
+            }
+        }
+
+        // Pad uncommanded minions with locked pips so the UI never jumps when commanded
+        if (isMinion && actionSlots.length === 0) {
+            if (hasQuickenedSnapshot) {
+                pipsToRender.unshift({
+                    entry: null,
+                    isGold: true,
+                    isOver: false,
+                    isLocked: true,
+                    subIdx: 0,
+                    totalCost: 1
+                });
+            }
+            const nonGoldCount = pipsToRender.filter(p => !p.isGold).length;
+            if (nonGoldCount < this.MINION_DEFAULT_PIPS) {
+                const needed = this.MINION_DEFAULT_PIPS - nonGoldCount;
+                for (let i = 0; i < needed; i++) {
+                    pipsToRender.push({
+                        entry: null,
+                        isGold: false,
+                        isOver: false,
+                        isLocked: true,
+                        subIdx: 0,
+                        totalCost: 1
+                    });
+                }
             }
         }
 
@@ -78,7 +119,11 @@ export class TrackerPipRenderer {
         if (!this.shouldRenderPip(isOver, state)) return;
 
         if (!pip.entry) {
-            this.renderUnspentPip(pip, actionLine);
+            if (pip.isLocked) {
+                this.renderLockedPip(pip, actionLine);
+            } else {
+                this.renderUnspentPip(pip, actionLine);
+            }
             state.pipsRendered++;
             return;
         }
@@ -131,6 +176,16 @@ export class TrackerPipRenderer {
         }
 
         return true;
+    }
+
+    private static renderLockedPip(pip: PipRenderModel, actionLine: HTMLElement) {
+        const span = document.createElement("span");
+        span.className = `action-icon locked ${pip.isGold ? 'quickened' : ''} tracker-tooltip`.trim();
+        span.dataset.tooltip = pip.isGold
+            ? "Uncommanded Quickened Action — Sustain or Command to unlock"
+            : "Uncommanded (0 Actions) — Sustain or Command to unlock";
+        span.textContent = "A";
+        actionLine.appendChild(span);
     }
 
     private static renderUnspentPip(pip: PipRenderModel, actionLine: HTMLElement) {
@@ -202,10 +257,24 @@ export class TrackerPipRenderer {
     }
 
     /**
-     * Renders the action control button (either finish complex action or add manual action).
+     * Renders the action control button (either finish complex action or add manual action),
+     * plus a grant/command toggle button on summoned minion rows.
      */
     static renderActionButton(combatant: CombatantPF2e, actionLine: HTMLElement) {
         const c = combatant as any;
+
+        if (SummonManager.isMinion(combatant)) {
+            const granted = SummonManager.getGrantedActions(combatant);
+            const grantBtn = document.createElement("span");
+            grantBtn.className = `action-icon grant-button tracker-tooltip ${granted > 0 ? 'granted' : ''}`;
+            grantBtn.dataset.tooltip = granted > 0
+                ? "Minion Commanded (2 Actions) — Click to revoke"
+                : "Grant 2 Minion Actions (Command / Free Sustain)";
+            grantBtn.dataset.combatantId = c.id;
+            grantBtn.innerHTML = '<i class="fas fa-bolt"></i>';
+            actionLine.appendChild(grantBtn);
+        }
+
         const lastAction = ActionManager.getLastAction(combatant);
         const lastSpecialAction = lastAction?.entry.ComplexActionState;
         const activeSpecialAction = !ComplexActionEngine.isComplete(lastSpecialAction);
@@ -237,12 +306,22 @@ export class TrackerPipRenderer {
 
     /**
      * Renders reaction slots into the appropriate container.
+     * For minions (0 reaction slots), renders a locked reaction pip so the 2-line height remains constant.
      */
     static renderReactionSlots(
         combatant: CombatantPF2e,
         reactionSlots: any[],
         targetContainer: HTMLElement
     ) {
+        if (reactionSlots.length === 0 && SummonManager.isMinion(combatant)) {
+            const span = document.createElement("span");
+            span.className = "action-icon reaction locked tracker-tooltip";
+            span.dataset.tooltip = "Minions cannot use reactions";
+            span.textContent = "R";
+            targetContainer.appendChild(span);
+            return;
+        }
+
         reactionSlots.forEach(slot => {
             const span = document.createElement("span");
             const entry = slot.spentBy;

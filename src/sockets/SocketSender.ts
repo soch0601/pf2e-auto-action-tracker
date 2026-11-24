@@ -80,4 +80,12 @@ export class SocketSender {
         if (!SocketUtils.socket) return;
         SocketUtils.socket.executeForEveryone("attemptWhisper", payload);
     }
+
+    /**
+     * Outgoing call to GM to toggle manual action grant on a summoned minion
+     */
+    static async sendToggleMinionGrant(combatantId: string): Promise<any> {
+        if (!SocketUtils.socket) return;
+        return await SocketUtils.socket.executeAsGM("toggleMinionGrant", { combatantId });
+    }
 }

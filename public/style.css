@@ -551,3 +551,209 @@
 .action-icon.finish-button i {
   pointer-events: none;
 }
+
+/* Locked Pips (Uncommanded Minion 0 Actions / Minion Reaction) */
+.action-icon.locked {
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(255, 255, 255, 0.25);
+  opacity: 0.45;
+  cursor: default;
+}
+
+.action-icon.locked.quickened {
+  color: transparent;
+  -webkit-text-stroke: 1.5px rgba(219, 183, 92, 0.35) !important;
+  opacity: 0.45;
+  cursor: default;
+}
+
+.action-icon.reaction.locked {
+  color: transparent;
+  -webkit-text-stroke: 1px rgba(219, 183, 92, 0.25);
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Minion Grant / Command Toggle Button */
+.action-icon.grant-button {
+  font-family: "Font Awesome 6 Free" !important;
+  font-weight: 900;
+  font-size: 12px !important;
+  margin-left: 6px;
+  color: #888888;
+  opacity: 0.65;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+}
+
+.action-icon.grant-button.granted {
+  color: #dbb75c;
+  opacity: 0.95;
+  filter: drop-shadow(0 0 2px rgba(219, 183, 92, 0.4));
+}
+
+.action-icon.grant-button:hover {
+  opacity: 1;
+  color: #ffe082;
+  transform: scale(1.2);
+}
+
+.action-icon.grant-button i {
+  pointer-events: none;
+}
+
+#pf2e-hud-tracker
+  .pf2e-auto-action-tracker-container.compact
+  .action-icon.grant-button {
+  font-size: 10px !important;
+  margin-left: 2px;
+}
+
+/* Indented Summoned Minion Sibling Rows (Directly Below Controller Combatant) */
+.pf2e-auto-action-tracker-minion-row {
+  position: relative;
+  flex: 0 0 auto !important;
+  display: flex !important;
+  flex-direction: row !important;
+  flex-wrap: nowrap !important;
+  align-items: center !important;
+  gap: 8px;
+  margin-left: 18px !important;
+  width: calc(100% - 18px) !important;
+  height: auto !important;
+  min-height: 0 !important;
+  line-height: 1.2 !important;
+  padding: 4px 6px !important;
+  border-left: 3px solid rgba(206, 186, 150, 0.45) !important;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.22);
+  border-radius: 0 4px 4px 0;
+  box-sizing: border-box;
+  pointer-events: auto;
+  list-style: none;
+}
+
+#pf2e-hud-tracker .combatants .pf2e-auto-action-tracker-minion-row,
+.pf2e-auto-action-tracker-minion-row.compact {
+  flex: 0 0 auto !important;
+  height: auto !important;
+  min-height: 0 !important;
+  padding: 2px 6px !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  gap: 6px;
+}
+
+.pf2e-auto-action-tracker-minion-row.defeated {
+  opacity: 0.6;
+}
+
+.pf2e-auto-action-tracker-minion-row.hidden-token {
+  opacity: 0.55;
+  font-style: italic;
+}
+
+.pf2e-auto-action-tracker-minion-row .minion-portrait-wrap {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  cursor: pointer;
+}
+
+.pf2e-auto-action-tracker-minion-row.compact .minion-portrait-wrap {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+}
+
+.pf2e-auto-action-tracker-minion-row .minion-token-image {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  margin: 0 !important;
+}
+
+.pf2e-auto-action-tracker-minion-row.defeated .minion-token-image {
+  filter: grayscale(100%) brightness(0.6);
+}
+
+.pf2e-auto-action-tracker-minion-row .minion-defeated-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #e53935;
+  font-size: 16px;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+}
+
+.pf2e-auto-action-tracker-minion-row .minion-details {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.pf2e-auto-action-tracker-minion-row.compact .minion-details {
+  gap: 1px;
+  justify-content: center;
+}
+
+.pf2e-auto-action-tracker-minion-row.compact .pf2e-auto-action-tracker-container {
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.pf2e-auto-action-tracker-minion-row.compact .action-line.compact {
+  height: 14px !important;
+  align-items: center;
+}
+
+.pf2e-auto-action-tracker-minion-row .minion-name-header {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  color: #f0e6d2;
+  font-weight: 600;
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.pf2e-auto-action-tracker-minion-row.compact .minion-name-header {
+  font-size: 11px;
+  line-height: 1.05;
+}
+
+.pf2e-auto-action-tracker-minion-row .minion-name {
+  margin: 0 !important;
+  font-size: inherit !important;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pf2e-auto-action-tracker-minion-row.defeated .minion-name {
+  text-decoration: line-through;
+  color: #aa8888;
+}
+
+.pf2e-auto-action-tracker-minion-row .minion-status-icon.defeated-icon {
+  color: #e53935;
+  font-size: 11px;
+}
+
+.pf2e-auto-action-tracker-minion-row .minion-status-icon.hidden-icon {
+  color: #b0bec5;
+  font-size: 11px;
+}
+

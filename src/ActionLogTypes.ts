@@ -10,7 +10,7 @@ export interface ActionLogEntry {
     isMapRelevant?: boolean;
     mapProfile?: "standard" | "agile";
     actionModifiers?: ActionModifier[];
-    sustainItem?: { id: string, name: string };
+    sustainItem?: { id: string, name: string, minionTokenId?: string };
     ComplexActionState?: ActiveActivityState;
     category: string;
     linkedMessages: linkedRolls[];

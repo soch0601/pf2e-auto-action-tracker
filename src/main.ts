@@ -16,6 +16,7 @@ import { runAllConflictChecks } from "./otherModConflicts";
 import { findPf2eHudTracker } from "./trackerAdapters";
 import { findCombatantByMessage, findCombatantByTokenOrActor, findCombatantById, getCombatants, isCurrentUserActiveGM } from "./foundryCompat";
 import { enqueueAction } from "./actionQueue";
+import { SummonManager } from "./summons";
 
 let pf2eHudObserver: MutationObserver | undefined;
 let pf2eHudObservedCombatId: string | undefined;
@@ -287,6 +288,7 @@ Hooks.on("updateCombat", async (combat: EncounterPF2e, updateData: any, options:
 
 // Movement Hooks
 Hooks.on("preUpdateToken", (tokenDoc: any, update: any, options: any, userId: string) => {
+    logInfo('Options: ', options);
     if (!isReady) return;
     if (game.user?.id !== userId) return;
     MovementManager.handlePreUpdateToken(tokenDoc, update, options);
@@ -294,13 +296,89 @@ Hooks.on("preUpdateToken", (tokenDoc: any, update: any, options: any, userId: st
 
 Hooks.on("updateToken", (tokenDoc: any, update: any, options: any, userId: string) => {
     if (!isReady) return;
+
+    // If a tracked summon's flags or name/texture updated, re-render the combat tracker so its pips update
+    if (SummonManager.isEnabled() && (update.flags?.[SCOPE] || update.name || update.hidden !== undefined)) {
+        if ((game as any).combat?.active) {
+            (ui as any).combat?.render?.();
+        }
+    }
+
     if (game.user?.id !== userId) return;
     if (!("x" in update || "y" in update || update.movementAction)) return;
 
-    const combatant: Combatant = tokenDoc.combatant;
+    let combatant: any = tokenDoc.combatant;
+    if (SummonManager.isEnabled()) {
+        const minionCombatant = SummonManager.resolveMinionCombatant(game.combat, tokenDoc.id, tokenDoc.actor?.id);
+        if (minionCombatant) {
+            combatant = minionCombatant;
+        }
+    }
     if (!combatant?.id) return;
 
     enqueueAction(combatant.id, async () => await MovementManager.handleTokenUpdate(tokenDoc, update, options));
+});
+
+// Fired by PF2e Summons Assistant right after a summon token is placed.
+Hooks.on("postPf2eSummon", async (tokenDoc: any, summonerItem: any, summonerActor: any) => {
+    if (!isReady) return;
+    if (!SummonManager.isEnabled()) return;
+    await SummonManager.handlePostSummon(tokenDoc, summonerItem, summonerActor);
+});
+
+// PF2e Summons Assistant sets its summoner flag and embedded items after postPf2eSummon/createToken,
+// so we re-check initialization and initial action grants here when those updates arrive.
+Hooks.on("updateActor", async (actor: any, updateData: any) => {
+    if (!isReady) return;
+    if (!SummonManager.isEnabled() || !(game as any).combat?.active) return;
+
+    const hasSummonerFlagUpdate = Boolean(updateData?.flags?.["pf2e-summons-assistant"]?.summoner);
+    const hasHpUpdate = updateData?.system?.attributes?.hp !== undefined;
+
+    if (hasSummonerFlagUpdate) {
+        const tokenDoc = actor?.token ?? SummonManager.getSceneTokenDocs((game as any).combat).find((t: any) => t.actor?.id === actor?.id);
+        const summonerId = updateData.flags["pf2e-summons-assistant"].summoner?.id;
+        const summonerActor = summonerId ? (game as any).actors?.get?.(summonerId) : undefined;
+        const controller = getCombatants((game as any).combat).find(
+            (c: any) => c.actorId === summonerId || c.actor?.id === summonerId
+        );
+        const virtual = (tokenDoc && controller) ? SummonManager.getOrCreateVirtualCombatant(tokenDoc, controller) : undefined;
+        if (tokenDoc && virtual) {
+            if (virtual.getFlag(SCOPE, "grantedActions") === undefined) {
+                await SummonManager.handlePostSummon(tokenDoc, null, summonerActor || { id: summonerId });
+                return;
+            } else if (virtual.getFlag(SCOPE, "grantedByMsgId") === "summon-initial" && isCurrentUserActiveGM()) {
+                // Embedded items (e.g. Zombie Shambler's Slowed 1) are added after postPf2eSummon,
+                // so re-run the initial grant once the summoner flag lands.
+                const isQuickened = Boolean(virtual.actor?.hasCondition?.("quickened"));
+                await virtual.setFlag(SCOPE, "isQuickenedSnapshot", isQuickened);
+                await SummonManager.grantActionsToMinion(virtual, SummonManager.getGrantedActions(virtual), "summon-initial");
+            }
+        }
+    }
+
+    // Apply the dead overlay when a summoned minion hits 0 HP.
+    const newHp = updateData?.system?.attributes?.hp?.value;
+    if (hasHpUpdate && typeof newHp === "number" && newHp <= 0 && isCurrentUserActiveGM()
+        && SummonManager.isEligibleSummonedMinionActor(actor) && !actor?.hasCondition?.("dead")) {
+        try {
+            await actor.toggleStatusEffect?.("dead", { active: true, overlay: true });
+        } catch (e) {
+            console.warn("Action Tracker | Failed to apply Dead status to minion", e);
+        }
+    }
+
+    if (hasSummonerFlagUpdate || (hasHpUpdate && SummonManager.isEligibleSummonedMinionActor(actor))) {
+        (ui as any).combat?.render?.();
+    }
+});
+
+// Re-render combat tracker when a summoned minion token is created or deleted on the scene
+Hooks.on("createToken", (tokenDoc: any) => {
+    if (!isReady) return;
+    if (SummonManager.isEnabled() && SummonManager.isEligibleSummonedMinionActor(tokenDoc?.actor, tokenDoc)) {
+        (ui as any).combat?.render?.();
+    }
 });
 
 // Drop captured movement state for tokens that leave the scene. The MovementHistoryService keeps
@@ -309,6 +387,9 @@ Hooks.on("updateToken", (tokenDoc: any, update: any, options: any, userId: strin
 // across long campaigns as tokens come and go.
 Hooks.on("deleteToken", (tokenDoc: any) => {
     if (tokenDoc?.id) MovementHistoryService.resetCapturedHistory(tokenDoc.id);
+    if (isReady && SummonManager.isEnabled() && (game as any).combat?.active) {
+        (ui as any).combat?.render?.();
+    }
 });
 
 

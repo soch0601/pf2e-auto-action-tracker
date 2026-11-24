@@ -8,6 +8,7 @@ import { GlobalConfig } from "./globals.ts";
 import { isCurrentUserActiveGM } from "./foundryCompat.ts";
 import { SocketSender } from "./sockets/SocketSender.ts";
 import { AlertService } from "./chat/AlertService.ts";
+import { SummonManager } from "./summons/index.ts";
 
 import { MovementHistoryService } from "./MovementHistoryService.ts";
 
@@ -15,54 +16,107 @@ const MOVEMENT_FLAG = "movementHistorySnapshot";
 
 export class MovementManager {
     static handlePreUpdateToken(tokenDoc: any, update: any, options: any) {
-        if (!GlobalConfig.noHistoryConflict) return;
+        const isTrackedMinionWithoutCombatant =
+            !tokenDoc.combatant &&
+            SummonManager.isEnabled() &&
+            Boolean(SummonManager.resolveMinionCombatant((game as any).combat, tokenDoc.id, tokenDoc.actor?.id));
+
+        if (!GlobalConfig.noHistoryConflict && !isTrackedMinionWithoutCombatant) return;
 
         if ("x" in update || "y" in update) {
             const tokenId = tokenDoc.id;
-            let captured = MovementHistoryService.getCapturedHistory(tokenId) || [];
+            const startPoint = { x: tokenDoc.x, y: tokenDoc.y, elevation: tokenDoc.elevation ?? 0 };
 
-            // If this is the VERY first capture for this token, add the start point
-            if (captured.length === 0) {
-                captured.push({ x: tokenDoc.x, y: tokenDoc.y, elevation: tokenDoc.elevation ?? 0 });
+            if (GlobalConfig.noHistoryConflict) {
+                let captured = MovementHistoryService.getCapturedHistory(tokenId) || [];
+                if (captured.length === 0) {
+                    captured.push(startPoint);
+                }
+                MovementHistoryService.setCapturedHistory(tokenId, captured);
             }
 
-            MovementHistoryService.setCapturedHistory(tokenId, captured);
+            if (isTrackedMinionWithoutCombatant) {
+                let turnCoords = MovementHistoryService.getTurnCoords(tokenId) || [];
+                if (turnCoords.length === 0) {
+                    turnCoords.push(startPoint);
+                }
+                MovementHistoryService.setTurnCoords(tokenId, turnCoords);
+            }
         }
     }
 
     static async handleTokenUpdate(tokenDoc: any, update: any, options: any = {}) {
-        const combatant = tokenDoc.combatant;
+        let combatant = tokenDoc.combatant;
+        let isVirtualMinion = false;
+        if (SummonManager.isEnabled()) {
+            const minionCombatant = SummonManager.resolveMinionCombatant((game as any).combat, tokenDoc.id, tokenDoc.actor?.id);
+            if (minionCombatant) {
+                combatant = minionCombatant;
+                isVirtualMinion = !tokenDoc.combatant;
+            }
+        }
         if (!combatant) return;
 
         // Use tokenDoc.id as the primary key for physical movement history
         const tokenId = tokenDoc.id;
+        const endX = update.x !== undefined ? update.x : tokenDoc.x;
+        const endY = update.y !== undefined ? update.y : tokenDoc.y;
+        const endElev = update.elevation !== undefined ? update.elevation : (tokenDoc.elevation ?? 0);
 
         let history: any[] = [];
-        const captured = MovementHistoryService.getCapturedHistory(tokenId);
 
         if (GlobalConfig.noHistoryConflict) {
-            const endX = update.x !== undefined ? update.x : tokenDoc.x;
-            const endY = update.y !== undefined ? update.y : tokenDoc.y;
-            const endElev = update.elevation !== undefined ? update.elevation : (tokenDoc.elevation ?? 0);
-
+            const captured = MovementHistoryService.getCapturedHistory(tokenId);
             if (captured) {
-                // Manually build the path
                 captured.push({ x: endX, y: endY, elevation: endElev });
                 history = [...captured];
             } else {
                 history = [];
             }
+        } else if (isVirtualMinion) {
+            // Fake Foundry's turn-cumulative _movementHistory for non-combatant minion tokens
+            // Note: Foundry does not reset tokenDoc._movementHistory on turn changes for tokens without a Combatant
+            const turnCoords = MovementHistoryService.getTurnCoords(tokenId) || [];
+            if (options.isUndo) {
+                if (turnCoords.length > 0) {
+                    turnCoords.pop();
+                    if (turnCoords.length <= 1) {
+                        turnCoords.length = 0;
+                    }
+                }
+            } else {
+                turnCoords.push({ x: endX, y: endY, elevation: endElev });
+            }
+            MovementHistoryService.setTurnCoords(tokenId, turnCoords);
+            history = [...turnCoords];
         } else {
             history = tokenDoc._movementHistory || [];
         }
 
         const coordList = history.map((p: any) => ({ x: p.x, y: p.y, elevation: p.elevation ?? 0 }));
         try {
-            await MovementManager._processMovement(combatant, tokenDoc, coordList, false);
+            await MovementManager._processMovement(
+                combatant,
+                tokenDoc,
+                coordList,
+                false,
+                GlobalConfig.noHistoryConflict ? 'captured' : 'native'
+            );
         } catch (err) {
             logError("Movement Processing Error:", err);
         }
 
+    }
+
+    /**
+     * Maps Foundry/PF2e token movementAction defaults ("walk", "travel") to "stride"
+     * while preserving explicit modes like "fly", "swim", "climb", "burrow".
+     */
+    private static _normalizeMovementMode(movementAction?: string): string {
+        if (!movementAction || movementAction === "walk" || movementAction === "travel") {
+            return "stride";
+        }
+        return movementAction;
     }
 
     /**
@@ -95,7 +149,6 @@ export class MovementManager {
       */
     private static async _processMovement(combatant: CombatantPF2e, tokenDoc: any, providedCoordList?: any[], isRecursive: boolean = false, overrideMode?: 'native' | 'captured') {
         const mode = overrideMode || (GlobalConfig.noHistoryConflict ? 'captured' : 'native');
-        const activeId = (game as any).combat?.combatant?.id;
 
         const c = combatant as any as Combatant;
         if (!c?.id || !combatant) return;
@@ -110,7 +163,7 @@ export class MovementManager {
         }
 
         // Verify active turn for native mode (captured mode is session-based and more lenient)
-        if (mode === 'native' && activeId !== c.id) {
+        if (mode === 'native' && !SummonManager.isActiveTurnForCombatant((game as any).combat, combatant)) {
             return;
         }
 
@@ -173,7 +226,7 @@ export class MovementManager {
         // Jitter/GM Drag Checks - only return if distance is 0 and we have no recorded movement to undo
         if (distance > 200) return;
         if (distance === 0 && totalRecorded === 0) return;
-        const movementMode = tokenDoc.movementAction === "walk" ? "stride" : (tokenDoc.movementAction || 'stride');
+        const movementMode = MovementManager._normalizeMovementMode(tokenDoc.movementAction);
         const activeSpeed = ActorManager.getActiveSpeed(actor, movementMode) || 30;
         const isDifficult = MovementHistoryService.checkDifficultTerrain(tokenDoc.object, coordList);
 
@@ -205,7 +258,6 @@ export class MovementManager {
         if (isUndo) {
             if (lastResult && activeMsgId) {
                 await ActionManager.removeAction(combatant, activeMsgId);
-                AlertService.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${lastResult.actionLabel ?? lastResult.entry.label}`, 'undoAlert');
                 MovementHistoryService.storeMovement(tokenDoc, coordList);
                 await MovementManager._processNativeMovement(combatant, tokenDoc, coordList);
             }
@@ -254,8 +306,47 @@ export class MovementManager {
      */
     private static async _processCapturedMovement(combatant: CombatantPF2e, tokenDoc: any, coordList: any[]) {
         const tokenId = tokenDoc.id;
-        const movementMode = tokenDoc.movementAction || 'stride';
-        const speed = ActorManager.getActiveSpeed((combatant as any as Combatant).actor as any as ActorPF2e, movementMode);
+        const movementMode = MovementManager._normalizeMovementMode(tokenDoc.movementAction);
+        const actor = (combatant as any as Combatant).actor as any as ActorPF2e;
+        const speed = ActorManager.getActiveSpeed(actor, movementMode);
+
+        // Detect if Ctrl+Z returned the token to a previous point in its captured history
+        if (coordList.length >= 2) {
+            const latest = coordList[coordList.length - 1];
+            const prevLast = coordList[coordList.length - 2];
+            // If we have at least 3 points and the latest point equals coordList[coordList.length - 3], the user pressed Ctrl+Z!
+            const undoTarget = coordList.length >= 3 ? coordList[coordList.length - 3] : null;
+            if (undoTarget && latest.x === undoTarget.x && latest.y === undoTarget.y && (latest.elevation ?? 0) === (undoTarget.elevation ?? 0)) {
+                // Pop the undone move and the undo step from captured history
+                const trimmed = coordList.slice(0, coordList.length - 2);
+                MovementHistoryService.setCapturedHistory(tokenId, trimmed);
+                const newTotalDist = MovementManager._calculateTotalDistance(tokenDoc.object, trimmed);
+                MovementHistoryService.setLastInteractionDistance(tokenId, newTotalDist);
+
+                const lastResult = ActionManager.getLastAction(combatant);
+                const activeMsgId = lastResult?.isSubAction ? lastResult.subAction?.msgId : lastResult?.entry.msgId;
+                const isActiveMove = activeMsgId ? MovementManager.isMoveAction(activeMsgId) : false;
+
+                if (lastResult && activeMsgId && isActiveMove) {
+                    if (newTotalDist <= 0) {
+                        await ActionManager.removeAction(combatant, activeMsgId);
+                    } else {
+                        const isDifficult = MovementHistoryService.checkDifficultTerrain(tokenDoc.object, trimmed);
+                        const newCost = Math.ceil(newTotalDist / speed);
+                        const label = MovementHistoryService.getMovementLabel(newTotalDist, newCost, movementMode, isDifficult);
+                        await ActionManager.editAction(combatant, activeMsgId, { label, cost: newCost, distance: newTotalDist });
+                    }
+                } else {
+                    await this._performUndo(combatant, actor, tokenDoc);
+                }
+                return;
+            }
+            // Ignore no-op updates where latest equals prevLast
+            if (latest.x === prevLast.x && latest.y === prevLast.y && (latest.elevation ?? 0) === (prevLast.elevation ?? 0)) {
+                return;
+            }
+        }
+
         // Calculate distance covered in the current coordinate set
         const currentPathDistance = MovementManager._calculateTotalDistance(tokenDoc.object, coordList);
         const lastPathDist = MovementHistoryService.getLastInteractionDistance(tokenId);
@@ -354,7 +445,8 @@ export class MovementManager {
                 await ActionManager.removeAction(combatant, targetId);
 
                 if (!wasMove) {
-                    AlertService.triggerAlert(actor, 'Undo Correction', `Movement undo detected. Reverted: ${label}`, 'undoAlert');
+                    const alertActor = SummonManager.getAlertTargetActor(combatant) ?? actor;
+                    AlertService.triggerAlert(alertActor, 'Undo Correction', `Movement undo detected. Reverted: ${label}`, 'undoAlert');
                 } else {
                     break; // Successfully removed the movement segment
                 }

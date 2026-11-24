@@ -1,3 +1,5 @@
+import { SummonManager, MINION_ID_PREFIX } from "./summons/index.ts";
+
 export function getActiveGM(): any | undefined {
     const users = game.users as any;
     return users?.activeGM ?? users?.find?.((u: any) => u.active && u.isGM);
@@ -50,22 +52,42 @@ export function findCombatant(combat: any, predicate: (combatant: any) => boolea
 }
 
 /**
- * Find a combatant by their ID.
+ * Find a combatant by their ID (or virtual minion ID when Summons Tracking is enabled).
  */
 export function findCombatantById(combat: any, combatantId?: string): any | undefined {
     if (!combatantId) return;
-    return findCombatant(combat, (c: any) => c.id === combatantId);
+    const found = findCombatant(combat, (c: any) => c.id === combatantId);
+    if (found) return found;
+
+    if (SummonManager.isEnabled() && combatantId.startsWith(MINION_ID_PREFIX)) {
+        return SummonManager.resolveMinionCombatant(combat, combatantId);
+    }
+    return undefined;
 }
 
 /**
- * Find a combatant by token ID or actor ID.
+ * Find a combatant by token ID or actor ID (falling back to summoned minions when Summons Tracking is enabled).
  */
 export function findCombatantByTokenOrActor(combat: any, tokenId?: string | null, actorId?: string | null): any | undefined {
     if (!tokenId && !actorId) return;
-    return getCombatants(combat).find((c: any) => 
+
+    // If Summons Tracking is enabled and this token is a tracked minion, return its VirtualMinionCombatant
+    // so that flags and UI rendering consistently resolve to the minion token.
+    if (SummonManager.isEnabled() && tokenId) {
+        const minionByToken = SummonManager.resolveMinionCombatant(combat, tokenId);
+        if (minionByToken) return minionByToken;
+    }
+
+    const found = getCombatants(combat).find((c: any) => 
         (tokenId && (c.tokenId === tokenId || c.token?.id === tokenId)) || 
         (actorId && (c.actorId === actorId || c.actor?.id === actorId))
     );
+    if (found) return found;
+
+    if (SummonManager.isEnabled()) {
+        return SummonManager.resolveMinionCombatant(combat, tokenId, actorId);
+    }
+    return undefined;
 }
 
 /**

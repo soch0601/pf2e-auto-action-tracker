@@ -4,6 +4,7 @@ import { SettingsManager } from "./SettingsManager.ts";
 import { isCurrentUserActiveGM } from "./foundryCompat.ts";
 import { type ActionLogEntry, getEntryCost } from "./ActionLogTypes.ts";
 import { AlertService } from "./chat/AlertService.ts";
+import { SummonManager } from "./summons/index.ts";
 import type { CombatantPF2e } from "module-helpers";
 
 export class DBManager {
@@ -54,6 +55,36 @@ export class DBManager {
             [`flags.${SCOPE}.isQuickenedSnapshot`]: hasQuickenedSnapshot
         };
 
+        // Because c.update(updateData, { diff: false, recursive: false }) replaces the entire `flags[SCOPE]` object
+        // in Foundry when top-level keys are updated, preserve any existing minion-specific flags on the document!
+        const existingScopeFlags = c.flags?.[SCOPE];
+        if (existingScopeFlags && typeof existingScopeFlags === "object") {
+            for (const [key, val] of Object.entries(existingScopeFlags)) {
+                const fullKey = `flags.${SCOPE}.${key}`;
+                if (!(fullKey in updateData) && key !== "sustainData") {
+                    updateData[fullKey] = val;
+                }
+            }
+        } else if (typeof c.getFlag === "function") {
+            const preservedKeys = [
+                "minions",
+                "grantedActions",
+                "grantedByMsgId",
+                "summonerActorId",
+                "summonedByItemId",
+                "summonedByItemName",
+                "stunnedDecrement",
+                "lastOverspendAlert",
+                "lastReactionOverspendAlert"
+            ];
+            for (const key of preservedKeys) {
+                const val = c.getFlag(SCOPE, key);
+                if (val !== undefined) {
+                    updateData[`flags.${SCOPE}.${key}`] = val;
+                }
+            }
+        }
+
         if (extraFlags) {
             Object.assign(updateData, extraFlags);
         }
@@ -76,13 +107,23 @@ export class DBManager {
         // 4. Always update the registry
         updateData[`flags.${SCOPE}.sustainData`] = sustainMap;
 
+        // If this is a minion, filter out any reaction entries (minions have 0 reaction slots and cannot use reactions)
+        if (SummonManager.isMinion(combatant)) {
+            newLogs = newLogs.filter(e => e.type !== 'reaction');
+            updateData[`flags.${SCOPE}.log`] = newLogs;
+            updateData[`flags.${SCOPE}.reactionsSpent`] = 0;
+        }
+
         // --- Overspend Logic ---
         if (!skipOverspendCheck) {
             const economyUpdate = this.checkOverspend(combatant, newLogs);
             if (economyUpdate) {
                 updateData[`flags.${SCOPE}.lastOverspendAlert`] = economyUpdate.lastOverspendAlert;
             }
-            this.checkReactionOverspend(combatant, newLogs);
+            const reactionEconomyUpdate = this.checkReactionOverspend(combatant, newLogs);
+            if (reactionEconomyUpdate) {
+                updateData[`flags.${SCOPE}.lastReactionOverspendAlert`] = reactionEconomyUpdate.lastReactionOverspendAlert;
+            }
         }
 
         await c.update(updateData, { diff: false, recursive: false });
@@ -102,10 +143,15 @@ export class DBManager {
         const rawTotalSpent = actionLog.reduce((sum, e) => sum + getEntryCost(e, newLogs), 0);
 
         if (overspent.length > 0) {
-            const reason = `Spent actions that exceeded available slots (${overspent.map(o => o.label).join(', ')}).`;
+            const isMinion = SummonManager.isMinion(combatant);
+            const isUncommanded = isMinion && SummonManager.getGrantedActions(combatant) === 0;
+            const reason = isUncommanded
+                ? `Spent actions before being Sustained or Commanded (${overspent.map(o => o.label).join(', ')}).`
+                : `Spent actions that exceeded available slots (${overspent.map(o => o.label).join(', ')}).`;
             const lastAlert = (c.getFlag(SCOPE, "lastOverspendAlert") as number) || 0;
             if (rawTotalSpent > lastAlert) {
-                AlertService.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperOverspend');
+                const alertActor = SummonManager.getAlertTargetActor(combatant) ?? actor;
+                AlertService.triggerAlert(alertActor, "Economy Alert", `**${c.name || actor.name}**: ${reason}`, 'whisperOverspend');
             }
             return { lastOverspendAlert: rawTotalSpent };
         }
@@ -115,16 +161,25 @@ export class DBManager {
     /**
       * Logic to determine if an over spending alert should be sent for reactions. 
       */
-    static checkReactionOverspend(combatant: CombatantPF2e, newLogs: ActionLogEntry[]) {
+    static checkReactionOverspend(combatant: CombatantPF2e, newLogs: ActionLogEntry[]): { lastReactionOverspendAlert: number } | null {
         const c = combatant as any;
         const actor = c.actor;
-        if (!actor || !SettingsManager.get("whisperReactionOverspend") || !isCurrentUserActiveGM()) return;
+        if (!actor || !SettingsManager.get("whisperReactionOverspend") || !isCurrentUserActiveGM()) return null;
+        if (SummonManager.isMinion(combatant)) return null;
 
         const { overspent } = ActorManager.allocateSlots(combatant, newLogs, 'reaction');
+        const realOverspent = overspent.filter(o => o.category !== 'system' && o.msgId !== 'System');
 
-        if (overspent.length > 0) {
-            const reason = `Spent reactions that exceeded available slots (${overspent.map(o => o.label).join(', ')}).`;
-            AlertService.triggerAlert(actor, "Economy Alert", `**${actor.name}**: ${reason}`, 'whisperReactionOverspend');
+        if (realOverspent.length > 0) {
+            const rawReactionSpent = realOverspent.length;
+            const lastAlert = (c.getFlag(SCOPE, "lastReactionOverspendAlert") as number) || 0;
+            if (rawReactionSpent > lastAlert) {
+                const reason = `Spent reactions that exceeded available slots (${realOverspent.map(o => o.label).join(', ')}).`;
+                const alertActor = SummonManager.getAlertTargetActor(combatant) ?? actor;
+                AlertService.triggerAlert(alertActor, "Economy Alert", `**${c.name || actor.name}**: ${reason}`, 'whisperReactionOverspend');
+            }
+            return { lastReactionOverspendAlert: rawReactionSpent };
         }
+        return null;
     }
 }

@@ -12,9 +12,9 @@ export class SustainDetector {
 
     static isType(message: any): boolean {
         if (message.flags?.[SCOPE]?.isSustainAutomation) return true;
-        const originSlug = message.flags?.origin?.slug || "";
-        if (originSlug === "sustain" || originSlug === "sustain-a-spell") return true;
-        else return false
+        const originSlug = message.flags?.pf2e?.origin?.slug || message.flags?.origin?.slug || "";
+        if (originSlug === "sustain" || originSlug === "sustain-a-spell" || originSlug === "sustain-an-effect") return true;
+        return false;
     }
 
     static getDetails(message: any) {
@@ -55,7 +55,9 @@ export class SustainDetector {
             (originUuid ? (fromUuidSync(originUuid) as any)?.name : null) ||
             "Action";
 
-        return { itemId, itemName };
+        const minionTokenId = customFlags.sustainedMinionTokenId;
+
+        return { itemId, itemName, minionTokenId };
     }
 
     /**

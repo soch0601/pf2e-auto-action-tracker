@@ -53,6 +53,7 @@ SocketsManager.socket = {
 // Mock ChatManager and AlertService
 ChatManager.triggerAlert = () => { };
 const { AlertService } = await import("../src/chat/AlertService.ts");
+const originalTriggerAlert = AlertService.triggerAlert;
 AlertService.triggerAlert = async () => { };
 
 // Mock ActionManager to avoid side effects
@@ -293,6 +294,8 @@ async function runTests() {
     ActorManager.getSlots = originalActorManager.getSlots;
     ActorManager.allocateSlots = originalActorManager.allocateSlots;
     ActorManager.hasQuickenedSnapshot = originalActorManager.hasQuickenedSnapshot;
+    AlertService.triggerAlert = originalTriggerAlert;
+    GlobalConfig.noHistoryConflict = false;
 }
 
 await runTests().catch(e => {
